@@ -1,10 +1,14 @@
 (() => {
-  const LS={players:"p247_players_v3",research:"p247_research_v3",draft:"p247_draft_v3",slot:"p247_slot_v3"};
+  const LS={players:"p247_players_v4",research:"p247_research_v4",draft:"p247_draft_v4",slot:"p247_slot_v4"};
   const clone=x=>JSON.parse(JSON.stringify(x));
   const canonicalId=name=>String(name||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-zA-Z0-9]/g,"").toLowerCase();
-  let players=JSON.parse(localStorage.getItem(LS.players)||"null")||clone(window.PLAYER_DATA||[]);
-  let research=JSON.parse(localStorage.getItem(LS.research)||"null")||clone(window.RESEARCH_DATA||{});
-  let draft=JSON.parse(localStorage.getItem(LS.draft)||"[]");
+  const safeParse=(value,fallback)=>{try{return value?JSON.parse(value):fallback;}catch{return fallback;}};
+  const storedPlayers=safeParse(localStorage.getItem(LS.players),null);
+  const storedResearch=safeParse(localStorage.getItem(LS.research),null);
+  let players=Array.isArray(storedPlayers)&&storedPlayers.length?storedPlayers:clone(window.PLAYER_DATA||[]);
+  let research=storedResearch&&typeof storedResearch==="object"&&!Array.isArray(storedResearch)&&Object.keys(storedResearch).length?storedResearch:clone(window.RESEARCH_DATA||{});
+  let draft=safeParse(localStorage.getItem(LS.draft),[]);
+  if(!Array.isArray(draft)) draft=[];
   let draftSlot=Number(localStorage.getItem(LS.slot)||1);
   const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
   const save=()=>{localStorage.setItem(LS.players,JSON.stringify(players));localStorage.setItem(LS.research,JSON.stringify(research));localStorage.setItem(LS.draft,JSON.stringify(draft));localStorage.setItem(LS.slot,String(draftSlot));};
