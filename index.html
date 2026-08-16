@@ -1,0 +1,1202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Picklehead Fantasy Draft Assistant</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f4f5f7;
+      color: #111827;
+    }
+
+    header {
+      background: #111827;
+      color: white;
+      padding: 16px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: 20px;
+    }
+
+    .subtitle {
+      opacity: .7;
+      font-size: 12px;
+      margin-top: 4px;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: auto;
+      padding: 16px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.08);
+    }
+
+    .card h2 {
+      margin-top: 0;
+      font-size: 17px;
+    }
+
+    .setup {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+
+    label {
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    input, select, button {
+      width: 100%;
+      padding: 10px;
+      margin-top: 4px;
+      border-radius: 8px;
+      border: 1px solid #d1d5db;
+      font-size: 14px;
+    }
+
+    button {
+      cursor: pointer;
+      background: #111827;
+      color: white;
+      border: none;
+      font-weight: 600;
+    }
+
+    button.secondary {
+      background: #e5e7eb;
+      color: #111827;
+    }
+
+    button.danger {
+      background: #dc2626;
+    }
+
+    .recommendation {
+      border: 2px solid #111827;
+      border-radius: 10px;
+      padding: 14px;
+      background: #f9fafb;
+    }
+
+    .recommendation .player {
+      font-size: 22px;
+      font-weight: 800;
+    }
+
+    .recommendation .reason {
+      margin-top: 8px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      margin-bottom: 10px;
+    }
+
+    .tabs button {
+      width: auto;
+      white-space: nowrap;
+      padding: 8px 12px;
+    }
+
+    .tabs button.active {
+      background: #2563eb;
+    }
+
+    .player-row {
+      display: grid;
+      grid-template-columns: 45px 1fr 60px 70px 80px;
+      gap: 8px;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid #eee;
+    }
+
+    .player-row:last-child {
+      border-bottom: none;
+    }
+
+    .rank {
+      font-weight: 700;
+      color: #6b7280;
+    }
+
+    .player-name {
+      font-weight: 700;
+    }
+
+    .team {
+      font-size: 11px;
+      color: #6b7280;
+    }
+
+    .pos {
+      font-weight: 700;
+    }
+
+    .value {
+      font-weight: 800;
+      text-align: right;
+    }
+
+    .draft-btn {
+      padding: 7px;
+      margin: 0;
+      font-size: 12px;
+    }
+
+    .badge {
+      display: inline-block;
+      font-size: 10px;
+      padding: 3px 6px;
+      border-radius: 5px;
+      background: #e5e7eb;
+      margin-left: 5px;
+    }
+
+    .badge.qb {
+      background: #dbeafe;
+      color: #1d4ed8;
+    }
+
+    .badge.rb {
+      background: #dcfce7;
+      color: #166534;
+    }
+
+    .badge.wr {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
+    .badge.te {
+      background: #f3e8ff;
+      color: #7e22ce;
+    }
+
+    .needs {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .need {
+      padding: 6px 9px;
+      background: #fee2e2;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .need.ok {
+      background: #dcfce7;
+      color: #166534;
+    }
+
+    .draft-history {
+      max-height: 350px;
+      overflow-y: auto;
+    }
+
+    .history-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 7px 0;
+      border-bottom: 1px solid #eee;
+      font-size: 13px;
+    }
+
+    .alert {
+      padding: 10px;
+      border-radius: 8px;
+      margin-bottom: 10px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .alert.red {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    .alert.green {
+      background: #dcfce7;
+      color: #166534;
+    }
+
+    .alert.yellow {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
+    @media(max-width: 800px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .setup {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .player-row {
+        grid-template-columns: 35px 1fr 45px 60px;
+      }
+
+      .player-row .team {
+        display: none;
+      }
+
+      .player-row .draft-btn {
+        grid-column: 4;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+<header>
+  <h1>🏈 Picklehead Fantasy Draft Assistant</h1>
+  <div class="subtitle">
+    Custom 2026 draft assistant • 12 teams • PPR • QB-completion scoring
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- SETUP -->
+  <div class="card">
+    <h2>Draft Setup</h2>
+
+    <div class="setup">
+
+      <div>
+        <label>Teams</label>
+        <input id="teamCount" type="number" value="12" min="2" max="20">
+      </div>
+
+      <div>
+        <label>Your Draft Position</label>
+        <input id="myPosition" type="number" value="6" min="1" max="20">
+      </div>
+
+      <div>
+        <label>Rounds</label>
+        <input id="roundCount" type="number" value="18" min="1" max="30">
+      </div>
+
+    </div>
+
+    <br>
+
+    <button onclick="initializeDraft()">
+      Start / Reset Draft
+    </button>
+
+    <br><br>
+
+    <button class="secondary" onclick="undoPick()">
+      Undo Last Pick
+    </button>
+
+    <button class="secondary" onclick="exportDraft()">
+      Export Draft
+    </button>
+
+    <button class="secondary" onclick="importDraft()">
+      Import Draft
+    </button>
+
+  </div>
+
+  <br>
+
+  <!-- CURRENT PICK -->
+  <div class="grid">
+
+    <div class="card">
+
+      <h2>Current Pick</h2>
+
+      <div id="currentPick"></div>
+
+      <br>
+
+      <div id="draftAlert"></div>
+
+      <div id="recommendation" class="recommendation">
+        Start the draft.
+      </div>
+
+    </div>
+
+    <div class="card">
+
+      <h2>Your Roster</h2>
+
+      <div id="myRoster"></div>
+
+      <br>
+
+      <h3>Remaining Needs</h3>
+
+      <div id="needs" class="needs"></div>
+
+    </div>
+
+  </div>
+
+  <br>
+
+  <!-- AVAILABLE PLAYERS -->
+  <div class="card">
+
+    <h2>Available Players</h2>
+
+    <div class="tabs">
+
+      <button class="active" onclick="setFilter('ALL', this)">
+        ALL
+      </button>
+
+      <button onclick="setFilter('QB', this)">
+        QB
+      </button>
+
+      <button onclick="setFilter('RB', this)">
+        RB
+      </button>
+
+      <button onclick="setFilter('WR', this)">
+        WR
+      </button>
+
+      <button onclick="setFilter('TE', this)">
+        TE
+      </button>
+
+    </div>
+
+    <input
+      id="search"
+      placeholder="Search players..."
+      oninput="renderPlayers()"
+    >
+
+    <br>
+
+    <div id="playerList"></div>
+
+  </div>
+
+  <br>
+
+  <!-- HISTORY -->
+  <div class="card">
+
+    <h2>Draft History</h2>
+
+    <div id="history" class="draft-history"></div>
+
+  </div>
+
+</div>
+
+<script>
+
+/*
+===========================================================
+  PLAYER DATABASE
+===========================================================
+
+Replace this with our final 2026 rankings later.
+
+Fields:
+
+rank       = custom league rank
+name       = player name
+pos        = QB/RB/WR/TE
+team       = NFL team
+value      = custom scoring value
+upside     = ceiling
+floor      = floor
+volume     = workload
+risk       = injury/role risk
+*/
+
+const PLAYERS = [
+
+  // QB
+  {rank:1,name:"Josh Allen",pos:"QB",team:"BUF",value:100,upside:100,floor:90,volume:88,risk:15},
+  {rank:2,name:"Joe Burrow",pos:"QB",team:"CIN",value:99,upside:100,floor:82,volume:98,risk:25},
+  {rank:3,name:"Drake Maye",pos:"QB",team:"NE",value:97,upside:100,floor:88,volume:90,risk:15},
+  {rank:4,name:"Dak Prescott",pos:"QB",team:"DAL",value:96,upside:98,floor:91,volume:98,risk:12},
+
+  {rank:10,name:"Jalen Hurts",pos:"QB",team:"PHI",value:94,upside:100,floor:85,volume:85,risk:15},
+  {rank:11,name:"Jayden Daniels",pos:"QB",team:"WAS",value:93,upside:100,floor:80,volume:82,risk:20},
+  {rank:12,name:"Lamar Jackson",pos:"QB",team:"BAL",value:92,upside:100,floor:80,volume:78,risk:20},
+
+  {rank:22,name:"Patrick Mahomes",pos:"QB",team:"KC",value:88,upside:95,floor:82,volume:92,risk:10},
+  {rank:23,name:"Brock Purdy",pos:"QB",team:"SF",value:87,upside:95,floor:82,volume:90,risk:15},
+  {rank:24,name:"Trevor Lawrence",pos:"QB",team:"JAX",value:86,upside:95,floor:80,volume:88,risk:15},
+  {rank:25,name:"Jaxson Dart",pos:"QB",team:"NYG",value:84,upside:100,floor:65,volume:80,risk:30},
+  {rank:26,name:"Caleb Williams",pos:"QB",team:"CHI",value:83,upside:95,floor:70,volume:82,risk:20},
+  {rank:49,name:"Justin Herbert",pos:"QB",team:"LAC",value:80,upside:90,floor:78,volume:90,risk:12},
+  {rank:50,name:"Bo Nix",pos:"QB",team:"DEN",value:79,upside:92,floor:75,volume:88,risk:15},
+  {rank:51,name:"Jared Goff",pos:"QB",team:"DET",value:78,upside:92,floor:80,volume:96,risk:10},
+  {rank:52,name:"Matthew Stafford",pos:"QB",team:"LAR",value:77,upside:94,floor:76,volume:91,risk:25},
+  {rank:53,name:"Kyler Murray",pos:"QB",team:"MIN",value:76,upside:95,floor:65,volume:75,risk:30},
+  {rank:54,name:"Jordan Love",pos:"QB",team:"GB",value:74,upside:90,floor:70,volume:82,risk:15},
+  {rank:55,name:"C.J. Stroud",pos:"QB",team:"HOU",value:72,upside:90,floor:68,volume:80,risk:15},
+  {rank:56,name:"Tyler Shough",pos:"QB",team:"NO",value:68,upside:90,floor:55,volume:75,risk:30},
+  {rank:57,name:"Sam Darnold",pos:"QB",team:"SEA",value:67,upside:80,floor:60,volume:80,risk:20},
+
+  // RB
+  {rank:5,name:"Jahmyr Gibbs",pos:"RB",team:"DET",value:95,upside:100,floor:88,volume:85,risk:15},
+  {rank:6,name:"Bijan Robinson",pos:"RB",team:"ATL",value:94,upside:100,floor:90,volume:92,risk:10},
+  {rank:13,name:"Christian McCaffrey",pos:"RB",team:"SF",value:91,upside:100,floor:78,volume:95,risk:30},
+  {rank:19,name:"Jonathan Taylor",pos:"RB",team:"IND",value:88,upside:95,floor:82,volume:92,risk:15},
+  {rank:20,name:"James Cook",pos:"RB",team:"BUF",value:87,upside:98,floor:82,volume:88,risk:15},
+  {rank:21,name:"De'Von Achane",pos:"RB",team:"MIA",value:86,upside:100,floor:75,volume:82,risk:25},
+  {rank:31,name:"Saquon Barkley",pos:"RB",team:"PHI",value:82,upside:95,floor:75,volume:85,risk:20},
+  {rank:32,name:"Ashton Jeanty",pos:"RB",team:"LV",value:81,upside:100,floor:65,volume:90,risk:20},
+  {rank:33,name:"Chase Brown",pos:"RB",team:"CIN",value:80,upside:95,floor:72,volume:88,risk:15},
+  {rank:34,name:"Kenneth Walker III",pos:"RB",team:"KC",value:78,upside:90,floor:72,volume:80,risk:20},
+  {rank:35,name:"Kyren Williams",pos:"RB",team:"LAR",value:77,upside:90,floor:78,volume:85,risk:15},
+  {rank:36,name:"Omarion Hampton",pos:"RB",team:"LAC",value:76,upside:98,floor:65,volume:88,risk:25},
+  {rank:37,name:"Derrick Henry",pos:"RB",team:"BAL",value:75,upside:90,floor:72,volume:80,risk:20},
+  {rank:58,name:"D'Andre Swift",pos:"RB",team:"CHI",value:69,upside:85,floor:68,volume:82,risk:15},
+  {rank:59,name:"Breece Hall",pos:"RB",team:"NYJ",value:68,upside:90,floor:60,volume:80,risk:20},
+  {rank:60,name:"Bucky Irving",pos:"RB",team:"TB",value:67,upside:90,floor:65,volume:78,risk:20},
+  {rank:61,name:"Quinshon Judkins",pos:"RB",team:"CLE",value:66,upside:90,floor:60,volume:82,risk:20},
+  {rank:62,name:"Javonte Williams",pos:"RB",team:"DAL",value:65,upside:85,floor:65,volume:78,risk:20},
+  {rank:63,name:"Josh Jacobs",pos:"RB",team:"GB",value:64,upside:85,floor:65,volume:78,risk:15},
+
+  // WR
+  {rank:7,name:"Puka Nacua",pos:"WR",team:"LAR",value:96,upside:100,floor:92,volume:98,risk:15},
+  {rank:8,name:"Ja'Marr Chase",pos:"WR",team:"CIN",value:95,upside:100,floor:90,volume:96,risk:10},
+  {rank:9,name:"Jaxon Smith-Njigba",pos:"WR",team:"SEA",value:94,upside:100,floor:90,volume:95,risk:10},
+  {rank:16,name:"Amon-Ra St. Brown",pos:"WR",team:"DET",value:90,upside:95,floor:92,volume:98,risk:10},
+  {rank:17,name:"CeeDee Lamb",pos:"WR",team:"DAL",value:89,upside:98,floor:86,volume:95,risk:15},
+  {rank:18,name:"Justin Jefferson",pos:"WR",team:"MIN",value:88,upside:95,floor:85,volume:90,risk:10},
+  {rank:27,name:"Drake London",pos:"WR",team:"ATL",value:84,upside:95,floor:80,volume:92,risk:10},
+  {rank:28,name:"Rashee Rice",pos:"WR",team:"KC",value:83,upside:100,floor:70,volume:90,risk:25},
+  {rank:29,name:"A.J. Brown",pos:"WR",team:"PHI",value:82,upside:95,floor:80,volume:82,risk:15},
+  {rank:30,name:"Nico Collins",pos:"WR",team:"HOU",value:81,upside:95,floor:78,volume:85,risk:15},
+  {rank:38,name:"George Pickens",pos:"WR",team:"DAL",value:76,upside:95,floor:65,volume:80,risk:20},
+  {rank:39,name:"Chris Olave",pos:"WR",team:"NO",value:75,upside:92,floor:70,volume:90,risk:20},
+  {rank:40,name:"Garrett Wilson",pos:"WR",team:"NYJ",value:74,upside:92,floor:70,volume:88,risk:15},
+  {rank:42,name:"DeVonta Smith",pos:"WR",team:"PHI",value:72,upside:88,floor:68,volume:80,risk:15},
+  {rank:43,name:"Jameson Williams",pos:"WR",team:"DET",value:70,upside:95,floor:60,volume:72,risk:15},
+  {rank:44,name:"Marvin Harrison Jr.",pos:"WR",team:"ARI",value:70,upside:95,floor:60,volume:78,risk:20},
+  {rank:45,name:"Ladd McConkey",pos:"WR",team:"LAC",value:69,upside:88,floor:72,volume:82,risk:10},
+  {rank:46,name:"Zay Flowers",pos:"WR",team:"BAL",value:68,upside:90,floor:70,volume:82,risk:15},
+  {rank:47,name:"Tee Higgins",pos:"WR",team:"CIN",value:67,upside:90,floor:65,volume:75,risk:20},
+  {rank:48,name:"Brian Thomas Jr.",pos:"WR",team:"JAX",value:66,upside:92,floor:60,volume:78,risk:15},
+
+  // TE
+  {rank:14,name:"Trey McBride",pos:"TE",team:"ARI",value:89,upside:100,floor:88,volume:95,risk:10},
+  {rank:15,name:"Brock Bowers",pos:"TE",team:"LV",value:88,upside:100,floor:85,volume:95,risk:10},
+  {rank:71,name:"Tyler Warren",pos:"TE",team:"IND",value:72,upside:90,floor:65,volume:75,risk:15},
+  {rank:72,name:"Colston Loveland",pos:"TE",team:"CHI",value:70,upside:90,floor:65,volume:78,risk:15},
+  {rank:73,name:"Kyle Pitts",pos:"TE",team:"ATL",value:68,upside:90,floor:55,volume:72,risk:20},
+  {rank:74,name:"Sam LaPorta",pos:"TE",team:"DET",value:67,upside:85,floor:62,volume:65,risk:15},
+  {rank:75,name:"Tucker Kraft",pos:"TE",team:"GB",value:65,upside:88,floor:60,volume:68,risk:20},
+  {rank:76,name:"Dallas Goedert",pos:"TE",team:"PHI",value:63,upside:80,floor:60,volume:62,risk:20},
+  {rank:77,name:"Harold Fannin Jr.",pos:"TE",team:"CLE",value:61,upside:90,floor:50,volume:72,risk:15},
+
+];
+
+let state = {
+  teams: 12,
+  myPosition: 6,
+  rounds: 18,
+  draftIndex: 0,
+  drafted: [],
+  history: [],
+  filter: "ALL"
+};
+
+function initializeDraft() {
+
+  state.teams =
+    Number(document.getElementById("teamCount").value);
+
+  state.myPosition =
+    Number(document.getElementById("myPosition").value);
+
+  state.rounds =
+    Number(document.getElementById("roundCount").value);
+
+  state.draftIndex = 0;
+  state.drafted = [];
+  state.history = [];
+
+  render();
+}
+
+function snakeTeamAtPick(pickIndex) {
+
+  const round =
+    Math.floor(pickIndex / state.teams);
+
+  const pos =
+    pickIndex % state.teams;
+
+  if (round % 2 === 0) {
+    return pos + 1;
+  }
+
+  return state.teams - pos;
+}
+
+function currentPickNumber() {
+  return state.draftIndex + 1;
+}
+
+function currentRound() {
+  return Math.floor(state.draftIndex / state.teams) + 1;
+}
+
+function isMyPick() {
+  return snakeTeamAtPick(state.draftIndex) === state.myPosition;
+}
+
+function draftPlayer(playerName) {
+
+  const player =
+    PLAYERS.find(p => p.name === playerName);
+
+  if (!player) return;
+
+  if (state.drafted.includes(playerName)) {
+    return;
+  }
+
+  state.drafted.push(playerName);
+
+  state.history.push({
+    pick: currentPickNumber(),
+    round: currentRound(),
+    team: snakeTeamAtPick(state.draftIndex),
+    player: playerName
+  });
+
+  state.draftIndex++;
+
+  render();
+}
+
+function undoPick() {
+
+  if (state.history.length === 0) return;
+
+  const last =
+    state.history.pop();
+
+  state.drafted =
+    state.drafted.filter(
+      p => p !== last.player
+    );
+
+  state.draftIndex--;
+
+  render();
+}
+
+function setFilter(filter, button) {
+
+  state.filter = filter;
+
+  document
+    .querySelectorAll(".tabs button")
+    .forEach(b => b.classList.remove("active"));
+
+  button.classList.add("active");
+
+  renderPlayers();
+}
+
+function availablePlayers() {
+
+  return PLAYERS
+    .filter(p => !state.drafted.includes(p.name))
+    .filter(p =>
+      state.filter === "ALL" ||
+      p.pos === state.filter
+    )
+    .sort((a,b) => a.rank - b.rank);
+}
+
+function calculateRecommendation() {
+
+  const available =
+    PLAYERS.filter(
+      p => !state.drafted.includes(p.name)
+    );
+
+  if (!available.length) {
+    return null;
+  }
+
+  /*
+  ---------------------------------------------------------
+  DYNAMIC VALUE MODEL
+  ---------------------------------------------------------
+
+  Base player value
+  + positional scarcity
+  + roster need
+  + upside
+  + volume
+
+  QB gets a major boost because:
+
+  - OP can be QB
+  - 1 point/completion
+  - 12-team league
+  - potentially 24 QB starters
+  */
+
+  const scores =
+    available.map(player => {
+
+      let score = player.value;
+
+      const scarcity =
+        calculateScarcity(player.pos);
+
+      score += scarcity;
+
+      const rosterNeed =
+        calculateRosterNeed(player.pos);
+
+      score += rosterNeed;
+
+      /*
+      QB-specific adjustment.
+      */
+
+      if (player.pos === "QB") {
+
+        score += 8;
+
+        /*
+        If many teams don't have a QB,
+        increase QB urgency.
+        */
+
+        const qbCount =
+          state.history.filter(
+            h =>
+              PLAYERS.find(p => p.name === h.player)?.pos === "QB"
+          ).length;
+
+        if (qbCount >= 8) score += 8;
+        if (qbCount >= 12) score += 12;
+        if (qbCount >= 16) score += 16;
+      }
+
+      /*
+      Don't force a position simply because
+      it's scarce if your roster doesn't need it.
+      */
+
+      return {
+        player,
+        score
+      };
+
+    });
+
+  scores.sort((a,b) => b.score - a.score);
+
+  return scores[0];
+}
+
+function calculateScarcity(position) {
+
+  const available =
+    PLAYERS.filter(
+      p =>
+        p.pos === position &&
+        !state.drafted.includes(p.name)
+    );
+
+  if (available.length <= 3) return 15;
+  if (available.length <= 6) return 10;
+  if (available.length <= 10) return 5;
+
+  return 0;
+}
+
+function calculateRosterNeed(position) {
+
+  const mine =
+    state.history
+      .filter(
+        h =>
+          h.team === state.myPosition
+      )
+      .map(h =>
+        PLAYERS.find(p => p.name === h.player)
+      )
+      .filter(Boolean);
+
+  const count =
+    mine.filter(p => p.pos === position).length;
+
+  /*
+  Your mandatory starters:
+
+  QB 1
+  RB 2
+  WR 2
+  TE 1
+  FLEX 1
+  OP 1
+
+  OP can be QB.
+
+  Therefore QB has enormous importance.
+  */
+
+  if (position === "QB") {
+
+    if (count === 0) return 12;
+    if (count === 1) return 4;
+    if (count === 2) return -4;
+
+  }
+
+  if (position === "RB") {
+
+    if (count < 2) return 8;
+    if (count === 2) return 3;
+
+  }
+
+  if (position === "WR") {
+
+    if (count < 2) return 8;
+    if (count === 2) return 3;
+
+  }
+
+  if (position === "TE") {
+
+    if (count === 0) return 6;
+
+  }
+
+  return 0;
+}
+
+function renderRecommendation() {
+
+  const box =
+    document.getElementById("recommendation");
+
+  if (!isMyPick()) {
+
+    box.innerHTML = `
+      <div class="player">
+        Waiting for your pick...
+      </div>
+      <div class="reason">
+        Track the other teams and watch for positional runs.
+      </div>
+    `;
+
+    return;
+  }
+
+  const recommendation =
+    calculateRecommendation();
+
+  if (!recommendation) return;
+
+  const p =
+    recommendation.player;
+
+  box.innerHTML = `
+    <div style="font-size:11px;font-weight:700">
+      RECOMMENDED PICK
+    </div>
+
+    <div class="player">
+      ${p.name}
+      <span class="badge ${p.pos.toLowerCase()}">
+        ${p.pos}
+      </span>
+    </div>
+
+    <div style="margin-top:5px">
+      ${p.team} • Custom Rank #${p.rank}
+    </div>
+
+    <div class="reason">
+
+      <strong>Draft Score: ${recommendation.score.toFixed(1)}</strong>
+
+      <br><br>
+
+      Upside: ${p.upside}/100<br>
+      Floor: ${p.floor}/100<br>
+      Workload: ${p.volume}/100<br>
+      Risk: ${p.risk}/100
+
+    </div>
+
+    <br>
+
+    <button onclick="draftPlayer('${p.name}')">
+      DRAFT ${p.name.toUpperCase()}
+    </button>
+  `;
+}
+
+function renderPlayers() {
+
+  const list =
+    document.getElementById("playerList");
+
+  const search =
+    document.getElementById("search")
+      .value
+      .toLowerCase();
+
+  let players =
+    availablePlayers()
+      .filter(p =>
+        p.name.toLowerCase().includes(search)
+      );
+
+  list.innerHTML =
+    players.map(p => `
+
+      <div class="player-row">
+
+        <div class="rank">
+          ${p.rank}
+        </div>
+
+        <div>
+          <div class="player-name">
+            ${p.name}
+          </div>
+
+          <div class="team">
+            ${p.team}
+          </div>
+        </div>
+
+        <div class="pos">
+          ${p.pos}
+        </div>
+
+        <div class="value">
+          ${p.value}
+        </div>
+
+        <button
+          class="draft-btn"
+          onclick="draftPlayer('${p.name}')">
+          Draft
+        </button>
+
+      </div>
+
+    `).join("");
+}
+
+function renderCurrentPick() {
+
+  const box =
+    document.getElementById("currentPick");
+
+  const team =
+    snakeTeamAtPick(state.draftIndex);
+
+  box.innerHTML = `
+
+    <div style="font-size:28px;font-weight:800">
+      Round ${currentRound()}
+    </div>
+
+    <div style="font-size:18px">
+      Pick ${currentPickNumber()}
+    </div>
+
+    <br>
+
+    <strong>
+      ${team === state.myPosition
+        ? "🔥 YOUR PICK"
+        : `Team ${team}'s pick`}
+    </strong>
+
+  `;
+}
+
+function renderAlert() {
+
+  const box =
+    document.getElementById("draftAlert");
+
+  const qbDrafted =
+    state.history.filter(h => {
+
+      const p =
+        PLAYERS.find(
+          x => x.name === h.player
+        );
+
+      return p && p.pos === "QB";
+
+    }).length;
+
+  if (qbDrafted >= 16) {
+
+    box.innerHTML = `
+      <div class="alert red">
+        🚨 MAJOR QB SCARCITY — 16+ QBs drafted
+      </div>
+    `;
+
+  } else if (qbDrafted >= 12) {
+
+    box.innerHTML = `
+      <div class="alert yellow">
+        ⚠️ QB RUN — 12+ QBs drafted
+      </div>
+    `;
+
+  } else {
+
+    box.innerHTML = `
+      <div class="alert green">
+        QB market is still relatively healthy.
+      </div>
+    `;
+
+  }
+}
+
+function renderRoster() {
+
+  const mine =
+    state.history
+      .filter(
+        h => h.team === state.myPosition
+      );
+
+  const box =
+    document.getElementById("myRoster");
+
+  if (!mine.length) {
+
+    box.innerHTML =
+      "<em>No players drafted yet.</em>";
+
+    return;
+  }
+
+  box.innerHTML =
+    mine.map(h => {
+
+      const p =
+        PLAYERS.find(
+          x => x.name === h.player
+        );
+
+      return `
+        <div class="history-row">
+          <span>
+            ${p.pos} — ${p.name}
+          </span>
+          <span>
+            R${h.round}
+          </span>
+        </div>
+      `;
+
+    }).join("");
+}
+
+function renderNeeds() {
+
+  const mine =
+    state.history
+      .filter(
+        h => h.team === state.myPosition
+      )
+      .map(
+        h =>
+          PLAYERS.find(
+            p => p.name === h.player
+          )
+      )
+      .filter(Boolean);
+
+  const counts = {
+    QB: mine.filter(p => p.pos === "QB").length,
+    RB: mine.filter(p => p.pos === "RB").length,
+    WR: mine.filter(p => p.pos === "WR").length,
+    TE: mine.filter(p => p.pos === "TE").length
+  };
+
+  const needs = [
+    ["QB",1],
+    ["RB",2],
+    ["WR",2],
+    ["TE",1]
+  ];
+
+  document.getElementById("needs").innerHTML =
+    needs.map(([pos,target]) => {
+
+      const ok =
+        counts[pos] >= target;
+
+      return `
+        <div class="need ${ok ? "ok" : ""}">
+          ${pos}: ${counts[pos]}/${target}
+        </div>
+      `;
+
+    }).join("");
+}
+
+function renderHistory() {
+
+  const box =
+    document.getElementById("history");
+
+  box.innerHTML =
+    state.history
+      .slice()
+      .reverse()
+      .map(h => `
+
+        <div class="history-row">
+
+          <span>
+            #${h.pick}
+            — Team ${h.team}
+          </span>
+
+          <strong>
+            ${h.player}
+          </strong>
+
+        </div>
+
+      `)
+      .join("");
+}
+
+function render() {
+
+  renderCurrentPick();
+  renderAlert();
+  renderRecommendation();
+  renderPlayers();
+  renderRoster();
+  renderNeeds();
+  renderHistory();
+
+  localStorage.setItem(
+    "pickleheadDraft",
+    JSON.stringify(state)
+  );
+}
+
+function exportDraft() {
+
+  const data =
+    JSON.stringify(state);
+
+  navigator.clipboard.writeText(data);
+
+  alert("Draft state copied to clipboard.");
+}
+
+function importDraft() {
+
+  const data =
+    prompt("Paste your exported draft state:");
+
+  if (!data) return;
+
+  try {
+
+    state =
+      JSON.parse(data);
+
+    render();
+
+  } catch {
+
+    alert("Invalid draft data.");
+
+  }
+}
+
+
+/*
+===========================================================
+  AUTO-LOAD
+===========================================================
+*/
+
+const saved =
+  localStorage.getItem("pickleheadDraft");
+
+if (saved) {
+
+  try {
+
+    state =
+      JSON.parse(saved);
+
+  } catch {}
+
+}
+
+render();
+
+</script>
+
+</body>
+</html>
