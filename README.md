@@ -1,4 +1,4 @@
-# Picklehead247 Draft Companion
+# Pick Draft Companion
 
 Static GitHub Pages fantasy-football draft companion for a 12-team snake league with 1 QB + 1 QB-eligible OP, 1 point per pass completion, 6-point passing TDs and full PPR.
 
