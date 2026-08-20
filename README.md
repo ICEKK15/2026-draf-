@@ -1,54 +1,43 @@
-# Pick Draft Companion
+# Picklehead247 Draft Companion — Production
 
-Static GitHub Pages fantasy-football draft companion for a 12-team snake league with 1 QB + 1 QB-eligible OP, 1 point per pass completion, 6-point passing TDs and full PPR.
+A static 2026 fantasy-football draft companion designed to stay open beside an ESPN online mock or live draft.
 
-## Core philosophy
+## What this version does
 
-The app does **not** simply sort ESPN or FantasyPros rankings.
+- No simulated opponents and no fake mock engine.
+- You record each real ESPN selection as it happens.
+- The app assigns each pick to the correct team using a 12-team snake draft.
+- Recommendations recalculate from the actual available-player pool and actual rosters.
+- Custom league logic emphasizes QB because the league awards 1 point per completion, 6 points per passing TD, and allows QB in the OP slot.
+- Tracks ESPN market rank/ADP as a price/timing signal rather than the decision engine.
+- Includes player projections, VORP, roster needs, positional scarcity, opponent QB demand, probability a player reaches your next turn, sleepers/value logic, and preseason intelligence.
+- Fantasy Footballers sentiment is treated as one source; repeated mentions are not additive. News/role changes can alter opportunity, health, and context.
+- Draft state autosaves in the browser and can be exported/imported as JSON.
 
-1. **Football value** — skills, projected workload/opportunity, offense, role security, health, upside and projection support.
-2. **League value** — custom QB scoring and roster construction.
-3. **Market cost** — ESPN rank/ADP and FantasyPros rankings.
-4. **Draft decision** — roster need, positional scarcity, opponent QB demand and probability the player survives to your next pick.
+## Use during an ESPN mock
 
-It intentionally displays both **Best Player Available** and **Best Pick Right Now**.
+1. Open ESPN's mock draft in one tab/window and this companion in another.
+2. Set **My ESPN draft slot** to your slot.
+3. Every time ESPN makes a pick, type that player's name in **Record the next ESPN pick** and press Enter.
+4. The companion automatically advances to the next snake pick and updates all recommendations.
+5. When it is your turn, use **Best Pick Right Now**, the board, survival probability, and roster context to make your ESPN selection. Then record your own ESPN pick here too.
 
-## Deploy on GitHub Pages
+## Publish on GitHub Pages
 
-1. Upload all files to your repo, preserving the `data/` folder.
-2. Commit to `main`.
-3. Go to **Settings → Pages**.
-4. Choose **Deploy from a branch**.
-5. Select `main` and `/ (root)`.
-6. Save.
+Upload these files preserving the folder structure:
 
-When you commit updates later, the same web-app URL updates automatically. You do not need to add it to your iPhone Home Screen again.
-
-## Data files
-
-- `data/players.js` holds ESPN ADP/rank, FantasyPros Draft ECR, FantasyPros ROS ECR and optional custom values.
-- `data/research.js` holds the evidence layer that should be refreshed close to draft day.
-
-Research fields are 0-10 ratings:
-
-```js
-{
-  opportunity: 9,
-  skills: 9,
-  offense: 8,
-  roleSecurity: 8,
-  upside: 9,
-  health: 8,
-  projectionEdge: 9,
-  confidence: 8,
-  notes: "Short evidence-based thesis."
-}
+```
+index.html
+styles.css
+app.js
+data/
+  players.js
+  research.js
+README.md
 ```
 
-## Important: live web research
+Then enable GitHub Pages for the repository branch/folder you uploaded.
 
-GitHub Pages is static. Do not expose API keys in frontend JavaScript. The safe workflow is to refresh `research.js` before the draft or later connect the app to a secure serverless endpoint.
+## Important limitation
 
-## Apostrophe bug fixed
-
-Internal player IDs strip punctuation, so names such as `Ja'Marr Chase`, `De'Von Achane` and `Tre' Harris` work without altering displayed names.
+A normal static GitHub Pages site cannot directly read the live ESPN draft page because the sites run on different origins and ESPN does not expose the draft room DOM to this app. This version is therefore a fast live companion: ESPN is the source of truth, and you record each pick here. An automatic ESPN sync would require a browser extension/userscript or a supported ESPN API/integration rather than ordinary static web-app code.

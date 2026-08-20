@@ -3,91 +3,131 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <meta name="theme-color" content="#111827" />
+  <meta name="theme-color" content="#07101f" />
   <title>Picklehead247 Draft Companion</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <header class="topbar">
+<header class="topbar">
+  <div class="brand-row">
+    <div class="logo">P247</div>
     <div>
-      <h1>Picklehead247 Draft Companion</h1>
-      <p class="sub">Evidence-first • ESPN market-aware • custom-scoring optimized</p>
+      <h1>Draft Companion</h1>
+      <p>2026 • ESPN live-draft companion • custom scoring • QB + OP optimized</p>
     </div>
-    <button id="resetBtn" class="ghost danger">Reset Draft</button>
-  </header>
+  </div>
+  <div class="top-actions">
+    <button id="undoBtn" class="ghost">Undo last</button>
+    <button id="exportBtn" class="ghost">Export</button>
+    <button id="importBtn" class="ghost">Import</button>
+    <button id="resetBtn" class="danger ghost">New draft</button>
+    <input id="importFile" type="file" accept="application/json,.json" hidden>
+  </div>
+</header>
 
-  <main class="layout">
-    <section class="panel controls">
-      <div class="control-grid">
-        <label>Your draft slot<select id="draftSlot"></select></label>
-        <label>Current pick<input id="currentPick" type="number" min="1" value="1" /></label>
-        <label>Position filter<select id="positionFilter"><option value="ALL">All</option><option>QB</option><option>RB</option><option>WR</option><option>TE</option><option>K</option><option>D/ST</option></select></label>
-        <label>Search<input id="search" placeholder="Player name…" /></label>
+<main>
+  <section class="panel controls">
+    <div class="control-grid">
+      <label>My ESPN draft slot
+        <select id="draftSlot"></select>
+      </label>
+      <label>ESPN current pick
+        <input id="currentPick" type="number" min="1" max="217" value="1">
+      </label>
+      <label>Position
+        <select id="positionFilter">
+          <option value="ALL">All</option><option>QB</option><option>RB</option><option>WR</option><option>TE</option><option>K</option><option>D/ST</option>
+        </select>
+      </label>
+      <label>Board search
+        <input id="search" placeholder="Filter player board…" autocomplete="off">
+      </label>
+    </div>
+
+    <div class="live-entry">
+      <div class="live-entry-copy">
+        <div class="eyebrow">RECORD THE NEXT ESPN PICK</div>
+        <div id="turnBadge" class="turn-title">—</div>
+        <p>Type the player ESPN just drafted and press Enter. Team ownership is assigned automatically from the snake draft.</p>
       </div>
-      <div class="tabs">
-        <button class="tab active" data-tab="board">Board</button>
-        <button class="tab" data-tab="sleepers">Sleepers</button>
-        <button class="tab" data-tab="rosters">Rosters</button>
-        <button class="tab" data-tab="data">Data / Research</button>
+      <div class="quick-picker">
+        <input id="pickEntry" placeholder="Type player name…" autocomplete="off" autocapitalize="words">
+        <div id="pickSuggestions" class="suggestions hidden"></div>
       </div>
-    </section>
+      <button id="recordTopBtn" class="primary-action" disabled>Record pick</button>
+    </div>
 
-    <section id="decisionPanel" class="decision-panel">
-      <article class="decision-card primary">
-        <div class="eyebrow">BEST PICK RIGHT NOW</div>
-        <h2 id="bestPickName">—</h2>
-        <div id="bestPickMeta" class="meta"></div>
-        <div id="bestPickReasons" class="reasons"></div>
-      </article>
-      <article class="decision-card">
-        <div class="eyebrow">BEST PLAYER AVAILABLE</div>
-        <h2 id="bestPlayerName">—</h2>
-        <div id="bestPlayerMeta" class="meta"></div>
-      </article>
-      <article class="decision-card">
-        <div class="eyebrow">NEXT TURN</div>
-        <h2 id="nextTurnLabel">—</h2>
-        <div id="nextTurnMeta" class="meta"></div>
-      </article>
-    </section>
+    <div id="draftStatus" class="draft-status"></div>
 
-    <section id="boardTab" class="tab-pane">
-      <div class="table-wrap">
-        <table id="playerTable">
-          <thead><tr><th>Pick</th><th>Player</th><th>Pos</th><th>Our Value</th><th>Football</th><th>Sleeper</th><th>ESPN</th><th>FP Draft</th><th>FP ROS</th><th>Make Back?</th><th>Evidence</th><th></th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </section>
+    <div class="tabs">
+      <button class="tab active" data-tab="board">Draft Board</button>
+      <button class="tab" data-tab="sleepers">Values / Sleepers</button>
+      <button class="tab" data-tab="rosters">Rosters</button>
+      <button class="tab" data-tab="log">Draft Log</button>
+      <button class="tab" data-tab="intel">Intel</button>
+      <button class="tab" data-tab="strategy">League Strategy</button>
+    </div>
+  </section>
 
-    <section id="sleepersTab" class="tab-pane hidden"><div id="sleeperCards" class="cards"></div></section>
-    <section id="rostersTab" class="tab-pane hidden"><div id="rosterGrid" class="roster-grid"></div></section>
+  <section class="decision-grid">
+    <article class="hero-card">
+      <div class="eyebrow" id="bestPickLabel">BEST PICK RIGHT NOW</div>
+      <h2 id="bestPickName">—</h2>
+      <p id="bestPickMeta"></p>
+      <div id="bestPickReasons" class="chips"></div>
+    </article>
+    <article class="decision-card">
+      <div class="eyebrow">BEST PLAYER AVAILABLE</div>
+      <h3 id="bpaName">—</h3>
+      <p id="bpaMeta"></p>
+    </article>
+    <article class="decision-card">
+      <div class="eyebrow">YOUR NEXT TURN</div>
+      <h3 id="nextPick">—</h3>
+      <p id="nextPickMeta"></p>
+    </article>
+    <article class="decision-card">
+      <div class="eyebrow">QB / OP PLAN</div>
+      <h3 id="qbPlan">—</h3>
+      <p id="qbPlanMeta"></p>
+    </article>
+  </section>
 
-    <section id="dataTab" class="tab-pane hidden">
-      <div class="data-grid">
-        <article class="data-card">
-          <h3>Player data import</h3>
-          <p>Paste a JSON array. Existing browser data will be replaced. Use the schema shown in <code>data/players.js</code>.</p>
-          <textarea id="playerImport" rows="12" placeholder='[{"name":"Josh Allen", ...}]'></textarea>
-          <div class="row"><button id="importPlayersBtn">Import players</button><button id="exportPlayersBtn" class="ghost">Export current</button></div>
-        </article>
-        <article class="data-card">
-          <h3>Research / evidence import</h3>
-          <p>This is what prevents the app from blindly following rankings. Import updated role, skill, opportunity, health and projection evidence before the draft.</p>
-          <textarea id="researchImport" rows="12" placeholder='{"Josh Allen":{"opportunity":9, ...}}'></textarea>
-          <div class="row"><button id="importResearchBtn">Import research</button><button id="exportResearchBtn" class="ghost">Export current</button></div>
-        </article>
-        <article class="data-card full">
-          <h3>How recommendations work</h3>
-          <p><strong>Football evidence drives value first.</strong> ESPN/FantasyPros rankings are used mainly to estimate market cost, identify disagreement and decide whether to draft now or wait.</p>
-          <div class="formula">Football outlook → league/scoring adjustment → risk/upside → positional scarcity → ESPN market cost → probability of surviving to your next pick.</div>
-        </article>
-      </div>
-    </section>
-  </main>
-  <div id="toast" class="toast hidden"></div>
-  <script src="data/players.js"></script>
-  <script src="data/research.js"></script>
-  <script src="app.js"></script>
+  <section id="boardTab" class="tab-pane">
+    <div class="board-toolbar">
+      <div id="poolCount" class="muted"></div>
+      <div class="legend"><span class="dot supplied"></span> supplied projection <span class="dot estimated"></span> estimated fill-in</div>
+    </div>
+    <div class="table-wrap">
+      <table id="playerTable">
+        <thead><tr><th>Player</th><th>Pos</th><th>Pick score</th><th>Proj</th><th>VORP</th><th>ESPN</th><th id="survivalHead">Next turn</th><th>Intel</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="sleepersTab" class="tab-pane hidden"><div id="sleeperCards" class="cards"></div></section>
+  <section id="rostersTab" class="tab-pane hidden"><div id="rosterGrid" class="roster-grid"></div></section>
+  <section id="logTab" class="tab-pane hidden">
+    <div class="log-toolbar"><p class="muted">This is the board you entered from ESPN. Undo any individual pick if you recorded the wrong player.</p></div>
+    <div class="table-wrap"><table><thead><tr><th>Pick</th><th>Round</th><th>Team</th><th>Player</th><th>Pos</th><th></th></tr></thead><tbody id="draftLog"></tbody></table></div>
+  </section>
+  <section id="intelTab" class="tab-pane hidden">
+    <div class="intel-intro"><h2>News & analyst intelligence</h2><p>News changes health, role, opportunity and context. Repeated mentions from the same analyst source do not create extra conviction.</p></div>
+    <div id="intelCards" class="cards"></div>
+  </section>
+  <section id="strategyTab" class="tab-pane hidden">
+    <div class="strategy-grid">
+      <article class="strategy-card"><div class="eyebrow">YOUR LEAGUE</div><h3>QB is structurally more valuable</h3><p>1 point per completion, 6 points per passing TD, and QB eligibility in the OP slot make a strong QB2 a legitimate weekly starter—not merely bench depth.</p></article>
+      <article class="strategy-card"><div class="eyebrow">MARKET</div><h3>Use ESPN price, not ESPN rank, as a timer</h3><p>The app treats ESPN rank/ADP as an estimate of when the room will draft a player. Football value and your scoring determine whether you should beat that price.</p></article>
+      <article class="strategy-card"><div class="eyebrow">EARLY ROUNDS</div><h3>Do not chase weak positional runs</h3><p>If the room pushes quarterbacks or running backs above value, take the falling elite talent. Your league still raises QB value, but price matters.</p></article>
+      <article class="strategy-card"><div class="eyebrow">LATE ROUNDS</div><h3>Favor asymmetric upside</h3><p>Prioritize contingent-value RBs, emerging roles, and receivers/tight ends whose routes or target shares can jump. Kicker and D/ST remain late selections.</p></article>
+    </div>
+  </section>
+</main>
+<div id="toast" class="toast hidden"></div>
+<script src="data/players.js"></script>
+<script src="data/research.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
