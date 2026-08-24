@@ -1,5 +1,5 @@
 (() => {
-  const APP_VERSION = "prod-v2.4-dynamic-pool-lookahead";
+  const APP_VERSION = "prod-v2.6-clean-board";
   const MAX_PICKS = 216;
   const LEAGUE = Object.freeze({
     teams: 12,
@@ -200,6 +200,30 @@
     while (lo < hi) { const m=(lo+hi)>>1; if (allVorp[m] < v) lo=m+1; else hi=m; }
     return lo / Math.max(1, allVorp.length - 1);
   };
+
+  // Cross-position recommendation value should be dominated by the user's supplied
+  // custom-scoring board, not by raw VORP alone. Raw VORP is still displayed and used
+  // as one component, but deep replacement cutoffs can otherwise overstate positions
+  // such as WR relative to elite QB/RB options.
+  const coreVorp = players
+    .filter(p => !p.recordOnly && ["QB","RB","WR","TE"].includes(p.pos))
+    .map(vorp)
+    .sort((a,b) => a-b);
+
+  function coreVorpPercentile(v) {
+    if (!coreVorp.length) return .5;
+    let lo=0, hi=coreVorp.length;
+    while (lo < hi) { const m=(lo+hi)>>1; if (coreVorp[m] < v) lo=m+1; else hi=m; }
+    return lo / Math.max(1, coreVorp.length - 1);
+  }
+
+  function customBoardRankScore(p) {
+    const rank = Number(p.sourceOrder);
+    if (!Number.isFinite(rank) || rank <= 0 || rank >= 9999) return 0;
+    // Smooth curve: preserves meaningful separation at the top without making rank
+    // differences overwhelming later in the draft.
+    return 100 * Math.exp(-(rank - 1) / 80);
+  }
   const projectionPosIndex = new Map();
   Object.keys(replacementIndex).forEach(pos => {
     players.filter(p => p.pos === pos).sort((a,b) => b.customProjection - a.customProjection)
@@ -315,10 +339,15 @@
     if (prior) {
       // The cumulative prior already includes all reviewed evidence through the baseline date.
       priorScore = (prior.outlook || 0) * (.65 + .35*confidence);
-    } else {
+    } else if (base && Object.keys(base).length) {
       const dims = ((+base.skills||5)+(+base.opportunity||5)+(+base.offense||5)+(+base.upside||5)+(+base.health||7))/5;
       const team = teamContext[p.team]?.impact || 0;
       priorScore = clamp((dims-6)*1.6 + (+base.expertSignal||0)*.20 + (+base.newsImpact||0)*.25 + team, -10, 10);
+    } else {
+      // No player-specific research should mean neutral intel, not an accidental downgrade
+      // caused by default dimension values.
+      priorScore = teamContext[p.team]?.impact || 0;
+      confidence = .35;
     }
 
     const eventScore = groups.reduce((s,g)=>s + g.impact*g.confidence,0);
@@ -380,18 +409,25 @@
   };
 
   function needBonusFromCounts(p, c, rosterCount = myRosterCount()) {
-    // These are roster-fit adjustments in the same rough units as VORP. They are deliberately
-    // smaller than the old arbitrary score bonuses because the two-pick lookahead now handles
-    // positional urgency directly through the cost of waiting.
+    // Roster fit matters, but it must not overpower player quality. QB1/QB2 bonuses
+    // escalate only if the roster develops without filling the QB + OP structure.
     if (p.pos === "QB") {
-      if (c.QB === 0) return 14;   // QB starter
-      if (c.QB === 1) return 14;   // OP starter: effectively QB2 in this scoring
+      if (c.QB === 0) {
+        if (rosterCount <= 1) return 8;
+        if (rosterCount <= 3) return 12;
+        return 18;
+      }
+      if (c.QB === 1) {
+        if (rosterCount <= 2) return 6;
+        if (rosterCount <= 4) return 11;
+        return 17;
+      }
       if (c.QB === 2) return -8;
       return -24;
     }
-    if (p.pos === "RB") { if (c.RB===0) return 8; if (c.RB===1) return 6; if (c.RB<4) return 2; return -2; }
-    if (p.pos === "WR") { if (c.WR===0) return 8; if (c.WR===1) return 6; if (c.WR<5) return 2; return -2; }
-    if (p.pos === "TE") return c.TE===0 ? 4 : -4;
+    if (p.pos === "RB") { if (c.RB===0) return 7; if (c.RB===1) return 5; if (c.RB<4) return 2; return -2; }
+    if (p.pos === "WR") { if (c.WR===0) return 7; if (c.WR===1) return 5; if (c.WR<5) return 2; return -2; }
+    if (p.pos === "TE") return c.TE===0 ? 3 : -4;
 
     if (p.pos === "K" || p.pos === "D/ST") {
       const key = p.pos;
@@ -412,14 +448,22 @@
     return clamp(1 - (1/(1+Math.exp(-x))), .02, .98);
   }
 
-  // Intrinsic value is player quality in THIS scoring format. ESPN ADP is intentionally absent.
-  // ADP/timing belongs only in survivalToPick(), so a cheaper QB can no longer become\n  // "better" than a superior QB simply because he is drafted later by the market.
+  // Primary standalone value. This is intentionally independent of ADP.
+  //
+  // 72%: user's supplied custom-scoring overall board (sourceOrder)
+  // 28%: normalized VORP signal
+  // Intel is a bounded adjustment; unresolved injury risk is a bounded penalty.
+  //
+  // This prevents a deep replacement cutoff (for example WR46) from making a top WR
+  // automatically outrank elite QB/RB options simply because raw VORP is numerically larger.
   function intrinsicValue(p) {
     const r = researchFor(p);
-    const intelAdjustment = clamp(intelScore(p), -15, 15) * .8;
+    const board = customBoardRankScore(p);
+    const vorpScore = ["QB","RB","WR","TE"].includes(p.pos) ? coreVorpPercentile(vorp(p)) * 100 : 0;
+    const intelAdjustment = clamp(intelScore(p), -15, 15) * .30;
     const unresolvedPenalty = r.unresolved ? 4 : 0;
     const estimatedPenalty = p.projectionEstimated ? 1.5 : 0;
-    return vorp(p) + intelAdjustment - unresolvedPenalty - estimatedPenalty;
+    return board*.72 + vorpScore*.28 + intelAdjustment - unresolvedPenalty - estimatedPenalty;
   }
 
   function selectionUtility(p, c = counts(draftSlot), rosterCount = myRosterCount()) {
@@ -537,10 +581,22 @@
       const future = expectedBestOverallAfterPick(p,waitTarget,selectionPick || now,myCounts,myRosterN,pool);
       const pairEV = currentUtility + future.value;
 
-      // When you are on the clock, score IS the two-pick expected value. Between turns,\n      // survival only discounts how realistic the player is as a target; it never boosts\n      // intrinsic player quality. This removes the old Burrow-over-Allen market-value inversion.
-      const score = onClock ? pairEV : pairEV * (.25 + .75*Math.sqrt(selectionSurvival));
+      // v2.5: PLAYER VALUE IS PRIMARY.
+      // Dynamic wait cost is a secondary timing signal, capped so it can break close calls
+      // but cannot drag a materially weaker player above an elite option.
+      const waitBonus = clamp(posMetric.waitCost * .22, 0, 6);
+      const tierBonus = tierCliff ? clamp(tierGap * .12, 0, 3) : 0;
+      const baseRecommendation = currentUtility + waitBonus + tierBonus;
+
+      // Between turns, survival tells us whether a target is realistic. On the clock it has
+      // no effect. Two-pick EV remains visible as diagnostic context but is NOT the ranking score.
+      const score = onClock
+        ? baseRecommendation
+        : baseRecommendation * (.30 + .70*Math.sqrt(selectionSurvival));
+
       analysisCache.set(p.id,{
         score,pairEV,intrinsic:intrinsicValue(p),currentUtility,
+        waitBonus,tierBonus,
         survival:selectionSurvival,waitCost:posMetric.waitCost,
         expectedPosNext:posMetric.expectedNext,tierGap,tierCliff,
         likelyPosNext:posMetric.likelyNext || null,
@@ -558,7 +614,7 @@
   }
 
   function analysisFor(p) {
-    return analysisCache.get(p.id) || {score:-999,pairEV:-999,intrinsic:intrinsicValue(p),currentUtility:-999,survival:0,waitCost:0,expectedPosNext:0,tierGap:0,tierCliff:false,intel:intelScore(p),blockedReason:""};
+    return analysisCache.get(p.id) || {score:-999,pairEV:-999,intrinsic:intrinsicValue(p),currentUtility:-999,waitBonus:0,tierBonus:0,survival:0,waitCost:0,expectedPosNext:0,tierGap:0,tierCliff:false,intel:intelScore(p),blockedReason:""};
   }
   function bestCachedAvailable(ids) {
     for (const id of ids) { const p=playerById.get(id); if (p && !isDrafted(p) && researchFor(p).draftable !== false) return p; }
@@ -581,8 +637,8 @@
   function reasons(p) {
     const r=researchFor(p), a=analysisFor(p), out=[];
     if (p.pos==="QB") out.push("QB + OP • 1 pt/completion • 6-pt pass TD");
-    if (a.intrinsic>60) out.push("High intrinsic value over replacement");
-    if (a.waitCost>=18) out.push(`Large ${p.pos} drop if you wait`);
+    if (a.intrinsic>=90) out.push("Elite standalone value"); else if (a.intrinsic>=75) out.push("Strong standalone value");
+    if (a.waitCost>=18) out.push(`Large ${p.pos} drop if you wait (secondary)`);
     else if (a.waitCost>=8) out.push(`${p.pos} wait cost is meaningful`);
     if (a.tierCliff) out.push(`Immediate ${p.pos} tier cliff`);
     if (a.survival<.30 && !analysisContext.onClock) out.push("Unlikely to reach your pick");
@@ -666,22 +722,22 @@
   function renderDecision() {
     const now=currentPick(), best=bestCachedAvailable(rankedIds), bpa=bestCachedAvailable(bpaIds);
     const next=nextUserTurnFromNow(), after=followingUserPick(), onClock=isMyTurn(now);
-    $("#bestPickLabel").textContent=onClock?"BEST TWO-PICK EV RIGHT NOW":"BEST REALISTIC TARGET FOR YOUR NEXT PICK";
+    $("#bestPickLabel").textContent=onClock?"BEST PICK RIGHT NOW":"BEST REALISTIC TARGET FOR YOUR NEXT PICK";
     if (best) {
       const a=analysisFor(best);
       const posNext=a.likelyPosNext?.name || `${best.pos} pool`;
       $("#bestPickName").textContent=best.name;
-      $("#bestPickMeta").textContent=`${best.team} ${best.pos} • Value ${a.intrinsic.toFixed(1)} • ${best.pos} wait cost ${a.waitCost.toFixed(1)} • expected ${best.pos} next turn ${a.expectedPosNext.toFixed(1)} • 2-pick EV ${a.pairEV.toFixed(1)}${onClock?"":` • ${pct(a.survival)} chance to reach pick ${next}`}`;
+      $("#bestPickMeta").textContent=`${best.team} ${best.pos} • Recommendation ${a.score.toFixed(1)} • Standalone ${a.intrinsic.toFixed(1)} • ${best.pos} wait cost ${a.waitCost.toFixed(1)} • expected ${best.pos} next turn ${a.expectedPosNext.toFixed(1)} • 2-pick outlook ${a.pairEV.toFixed(1)}${onClock?"":` • ${pct(a.survival)} chance to reach pick ${next}`}`;
       $("#bestPickReasons").innerHTML=reasons(best).map(x=>`<span class="chip">${esc(x)}</span>`).join("");
     } else { $("#bestPickName").textContent="—"; $("#bestPickMeta").textContent=""; $("#bestPickReasons").innerHTML=""; }
     if (bpa) {
       const a=analysisFor(bpa);
       $("#bpaName").textContent=bpa.name;
-      $("#bpaMeta").textContent=`${bpa.team} ${bpa.pos} • intrinsic value ${intrinsicValue(bpa).toFixed(1)} • VORP ${vorp(bpa).toFixed(1)} • ESPN ${bpa.espnRank?"#"+bpa.espnRank:"est. #"+Math.round(marketRank(bpa))}`;
+      $("#bpaMeta").textContent=`${bpa.team} ${bpa.pos} • standalone value ${intrinsicValue(bpa).toFixed(1)} • raw VORP ${vorp(bpa).toFixed(1)} • ESPN ${bpa.espnRank?"#"+bpa.espnRank:"est. #"+Math.round(marketRank(bpa))}`;
     } else { $("#bpaName").textContent="—"; $("#bpaMeta").textContent=""; }
     if (next) {
       $("#nextPick").textContent=`Pick ${next}`;
-      $("#nextPickMeta").textContent=onClock?(after?`Two-pick model looks ahead to pick ${after}`:"Final turn"):`${next-now} pick${next-now===1?"":"s"} until you are on the clock`;
+      $("#nextPickMeta").textContent=onClock?(after?`Wait-cost model checks pick ${after} as secondary context`:"Final turn"):`${next-now} pick${next-now===1?"":"s"} until you are on the clock`;
     } else { $("#nextPick").textContent="Draft complete"; $("#nextPickMeta").textContent=""; }
     const c=counts(draftSlot);
     $("#qbPlan").textContent=c.QB===0?"QB1 is a structural priority":c.QB===1?"QB2 / OP is a structural priority":c.QB===2?"Two starting QBs secured":"QB depth only";
@@ -715,7 +771,6 @@
       <td class="score-num">${vorp(p).toFixed(1)}</td>
       <td>${market}${adp}</td>
       <td>${pill(pct(a.survival),a.survival<.3?"bad":a.survival>.7?"good":"warn")}</td>
-      <td><span class="pill intel-badge ${intelBadgeClass(a.intel,r.unresolved)}" title="${esc(intelText)}">${r.unresolved?"WAIT • ":a.intel>0?"+":""}${a.intel.toFixed(0)} • ${esc(r.status||"HOLD")}</span></td>
     </tr>`;
   }
 
