@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="theme-color" content="#07101f" />
   <title>Picklehead247 Draft Companion</title>
-  <link rel="stylesheet" href="styles.css?v=2.3" />
+  <link rel="stylesheet" href="styles.css?v=2.4" />
 </head>
 <body>
 <header class="topbar">
@@ -115,6 +115,14 @@
     </article>
   </section>
 
+  <section class="position-outlook panel" aria-label="Dynamic positional wait cost">
+    <div class="position-outlook-head">
+      <div><div class="eyebrow">DYNAMIC REMAINING POOL</div><h2>What do you lose by waiting?</h2></div>
+      <p class="muted">Value = adjusted VORP in your league. Wait cost compares the best value now with the expected best value at the relevant next turn, using live make-it-back probabilities.</p>
+    </div>
+    <div id="positionOutlookGrid" class="position-outlook-grid"></div>
+  </section>
+
   <section id="boardTab" class="tab-pane">
     <div class="board-toolbar">
       <div id="poolCount" class="muted"></div>
@@ -122,7 +130,7 @@
     </div>
     <div class="table-wrap">
       <table id="playerTable">
-        <thead><tr><th class="action-col">Draft / mark</th><th>Player</th><th>Pos</th><th>Pick score</th><th>Proj</th><th>VORP</th><th>ESPN</th><th id="survivalHead">Next turn</th><th>Intel</th></tr></thead>
+        <thead><tr><th class="action-col">Draft / mark</th><th>Player</th><th>Pos</th><th>2-pick EV</th><th>Value</th><th>Wait cost</th><th>Pos next</th><th>Proj</th><th>VORP</th><th>ESPN</th><th id="survivalHead">Make back?</th><th>Intel</th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
@@ -144,15 +152,15 @@
   <section id="strategyTab" class="tab-pane hidden">
     <div class="strategy-grid">
       <article class="strategy-card"><div class="eyebrow">YOUR LEAGUE</div><h3>Plan for two starting quarterbacks</h3><p>1 point per completion, 6 points per passing TD, and QB eligibility in the OP slot make QB2 a structural starter. The recommendation engine now adjusts QB timing earlier than ordinary 1-QB ESPN ADP and adapts to your room.</p></article>
-      <article class="strategy-card"><div class="eyebrow">MARKET</div><h3>Use ESPN price, not ESPN rank, as a timer</h3><p>The app treats ESPN rank/ADP as an estimate of when the room will draft a player. Football value and your scoring determine whether you should beat that price.</p></article>
-      <article class="strategy-card"><div class="eyebrow">LIVE DRAFT</div><h3>Fast entry first, heavy analysis when it matters</h3><p>Opponent picks register immediately. Recommendation recalculation is deferred during the run between your turns and refreshes automatically when you are on the clock.</p></article>
+      <article class="strategy-card"><div class="eyebrow">MARKET</div><h3>ADP is a timer, never a player-value bonus</h3><p>ESPN rank/ADP now affects only make-it-back probability. It cannot make a weaker player intrinsically better merely because he is cheaper. The room-specific timing model also learns whether each position is going earlier or later than baseline.</p></article>
+      <article class="strategy-card"><div class="eyebrow">DECISION MODEL</div><h3>Optimize this pick plus your next turn</h3><p>The recommendation compares intrinsic value, the dynamic remaining positional pool, probability each alternative survives, tier cliffs, roster construction and the expected best option at your following pick.</p></article>
       <article class="strategy-card"><div class="eyebrow">LATE ROUNDS</div><h3>Exactly one K and one D/ST — at the end</h3><p>The engine blocks K and D/ST from recommendations until your final two roster selections and will never recommend a second kicker or second defense. Earlier bench picks stay focused on asymmetric RB/WR/TE upside.</p></article>
     </div>
   </section>
 </main>
 <div id="toast" class="toast hidden"></div>
-<script src="data/players.js?v=2.3"></script>
-<script src="data/research.js?v=2.3"></script>
-<script src="app.js?v=2.3"></script>
+<script src="data/players.js?v=2.4"></script>
+<script src="data/research.js?v=2.4"></script>
+<script src="app.js?v=2.4"></script>
 </body>
 </html>

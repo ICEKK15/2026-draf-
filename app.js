@@ -1,5 +1,5 @@
 (() => {
-  const APP_VERSION = "prod-v2.3-lineup-aware-mobile";
+  const APP_VERSION = "prod-v2.4-dynamic-pool-lookahead";
   const MAX_PICKS = 216;
   const LEAGUE = Object.freeze({
     teams: 12,
@@ -55,6 +55,8 @@
   let stateRevision = 0;
   let analysisRevision = -1;
   let analysisCache = new Map();
+  let positionMetricsCache = new Map();
+  let analysisContext = { onClock:false, selectionPick:null, waitTarget:null };
   let rankedIds = [];
   let bpaIds = [];
   let intelViewCache = new Map();
@@ -214,43 +216,26 @@
     if (p.pos !== "QB") return marketRank(p);
     return clamp(7 + (qbProjectionRank(p) - 1) * 5.1, 1, MAX_PICKS);
   };
-  function observedQBTimingShift() {
+  const baselineTimingRank = p => p.pos === "QB" ? Math.min(marketRank(p), baselineLeagueQBTimingRank(p)) : marketRank(p);
+
+  // Learn how this specific room is drafting each position. A negative shift means
+  // the room is taking the position earlier than its baseline market expectation.
+  function observedPositionTimingShift(pos) {
     const samples = draft
       .map(d => ({ d, p: playerById.get(d.playerId) }))
-      .filter(x => x.p?.pos === "QB" && !x.p.recordOnly)
-      .map(x => x.d.pick - baselineLeagueQBTimingRank(x.p))
+      .filter(x => x.p?.pos === pos && !x.p.recordOnly && baselineTimingRank(x.p) < 350)
+      .map(x => x.d.pick - baselineTimingRank(x.p))
       .sort((a,b) => a-b);
     if (samples.length < 3) return 0;
     const mid = Math.floor(samples.length / 2);
     const median = samples.length % 2 ? samples[mid] : (samples[mid-1] + samples[mid]) / 2;
-    return clamp(median, -22, 22);
+    return clamp(median, -24, 24);
   }
   function draftTimingRank(p) {
-    if (p.pos !== "QB") return marketRank(p);
-    const leagueRank = baselineLeagueQBTimingRank(p) + observedQBTimingShift();
-    // Use the earlier of ESPN's price and our OP-adjusted room expectation.
-    return clamp(Math.min(marketRank(p), leagueRank), 1, MAX_PICKS);
+    if (isSpecialist(p)) return marketRank(p);
+    return clamp(baselineTimingRank(p) + observedPositionTimingShift(p.pos), 1, MAX_PICKS);
   }
 
-  function qbStructureBonus(p, c, rosterCount) {
-    if (p.pos !== "QB") return 0;
-    const q = c.QB || 0;
-    const nextRosterPick = rosterCount + 1;
-
-    if (q === 0) {
-      // QB1 is a mandatory starter. Escalate if the roster develops without one.
-      return 10 + (nextRosterPick >= 4 ? 8 : 0) + (nextRosterPick >= 6 ? 10 : 0);
-    }
-    if (q === 1) {
-      // QB2 is not "bench depth" here; it is the preferred OP starter.
-      return 12 + (nextRosterPick >= 5 ? 8 : 0) + (nextRosterPick >= 7 ? 10 : 0);
-    }
-    if (q === 2) {
-      // A third starting NFL QB can be useful insurance, but should not crowd out core depth early.
-      return nextRosterPick >= 11 && qbProjectionRank(p) <= 24 ? 2 : -9;
-    }
-    return -24;
-  }
 
   const INTEL_WEIGHTS = {
     official_transaction:1.00, official_diagnosis:1.00, official_starter:1.00,
@@ -395,15 +380,18 @@
   };
 
   function needBonusFromCounts(p, c, rosterCount = myRosterCount()) {
+    // These are roster-fit adjustments in the same rough units as VORP. They are deliberately
+    // smaller than the old arbitrary score bonuses because the two-pick lookahead now handles
+    // positional urgency directly through the cost of waiting.
     if (p.pos === "QB") {
-      if (c.QB === 0) return 17;
-      if (c.QB === 1) return 16;
-      if (c.QB === 2) return -6;
-      return -22;
+      if (c.QB === 0) return 14;   // QB starter
+      if (c.QB === 1) return 14;   // OP starter: effectively QB2 in this scoring
+      if (c.QB === 2) return -8;
+      return -24;
     }
-    if (p.pos === "RB") { if (c.RB===0) return 9; if (c.RB===1) return 7; if (c.RB<4) return 3; return -1; }
-    if (p.pos === "WR") { if (c.WR===0) return 8; if (c.WR===1) return 7; if (c.WR<5) return 3; return -1; }
-    if (p.pos === "TE") return c.TE===0 ? 5 : -5;
+    if (p.pos === "RB") { if (c.RB===0) return 8; if (c.RB===1) return 6; if (c.RB<4) return 2; return -2; }
+    if (p.pos === "WR") { if (c.WR===0) return 8; if (c.WR===1) return 6; if (c.WR<5) return 2; return -2; }
+    if (p.pos === "TE") return c.TE===0 ? 4 : -4;
 
     if (p.pos === "K" || p.pos === "D/ST") {
       const key = p.pos;
@@ -411,33 +399,96 @@
       const spotsLeft = Math.max(0, LEAGUE.rosterSize - rosterCount);
       const missing = missingSpecialists(c);
       if (spotsLeft > LEAGUE.specialistSlots) return -100;
-      // Once the roster has only enough space left for the missing specialist positions,
-      // they become mandatory rather than merely receiving a small preference.
-      if (spotsLeft <= missing) return 70;
-      return 24;
+      if (spotsLeft <= missing) return 80;
+      return 28;
     }
     return 0;
   }
+
   function survivalToPick(p, targetPick, fromPick = currentPick()) {
     if (!targetPick || targetPick <= fromPick) return 1;
     if (isSpecialist(p)) return 1;
     const x = (targetPick - draftTimingRank(p))/8.2;
     return clamp(1 - (1/(1+Math.exp(-x))), .02, .98);
   }
-  function marketValue(p) {
-    // K/DST are streaming positions; normal ADP/VORP market arbitrage should not pull them forward.
-    if (isSpecialist(p)) return 0;
-    const projectionPick = 1 + (1-percentile(vorp(p)))*180;
-    return clamp((marketRank(p)-projectionPick)/5,-12,12);
+
+  // Intrinsic value is player quality in THIS scoring format. ESPN ADP is intentionally absent.
+  // ADP/timing belongs only in survivalToPick(), so a cheaper QB can no longer become\n  // "better" than a superior QB simply because he is drafted later by the market.
+  function intrinsicValue(p) {
+    const r = researchFor(p);
+    const intelAdjustment = clamp(intelScore(p), -15, 15) * .8;
+    const unresolvedPenalty = r.unresolved ? 4 : 0;
+    const estimatedPenalty = p.projectionEstimated ? 1.5 : 0;
+    return vorp(p) + intelAdjustment - unresolvedPenalty - estimatedPenalty;
   }
-  function computeOpponentQBDemand(now, target) {
-    if (!target || target <= now) return 0;
-    const teams = new Set();
-    for (let pick=now; pick<target; pick++) teams.add(pickToTeam(pick));
-    teams.delete(draftSlot);
-    let qb1=0, qb2=0;
-    teams.forEach(slot => { const q=counts(slot).QB; if (q===0) qb1++; else if (q===1) qb2++; });
-    return clamp(qb1*1.2 + qb2*.55,0,10);
+
+  function selectionUtility(p, c = counts(draftSlot), rosterCount = myRosterCount()) {
+    return intrinsicValue(p) + needBonusFromCounts(p, c, rosterCount);
+  }
+
+  function simulatedRosterAfterPick(p, c, rosterCount) {
+    const next = { ...c, [p.pos]:(c[p.pos]||0)+1 };
+    return { counts:next, rosterCount:rosterCount+1 };
+  }
+
+  function expectedMaximum(candidates, targetPick, fromPick, valueFn, excludeId = null) {
+    if (!targetPick || targetPick <= fromPick) {
+      const first = candidates.filter(p=>p.id!==excludeId).sort((a,b)=>valueFn(b)-valueFn(a))[0];
+      return { value:first ? valueFn(first) : 0, likely:first || null, confidence:first ? 1 : 0 };
+    }
+    const sorted = candidates
+      .filter(p => p.id !== excludeId)
+      .map(p => ({ p, value:valueFn(p), survival:survivalToPick(p,targetPick,fromPick) }))
+      .sort((a,b)=>b.value-a.value);
+    let none = 1, ev = 0, likely = null, likelyProb = -1;
+    for (const item of sorted) {
+      const probBest = none * item.survival;
+      ev += probBest * item.value;
+      if (probBest > likelyProb) { likelyProb = probBest; likely = item.p; }
+      none *= (1-item.survival);
+      if (none < .0005) break;
+    }
+    return { value:ev, likely, confidence:clamp(1-none,0,1) };
+  }
+
+  function tierStats(list) {
+    const values=list.slice(0,24).map(intrinsicValue);
+    const gaps=[];
+    for(let i=0;i<values.length-1;i++) gaps.push(Math.max(0,values[i]-values[i+1]));
+    const sorted=[...gaps].sort((a,b)=>a-b);
+    const median=sorted.length ? sorted[Math.floor(sorted.length/2)] : 0;
+    return { threshold:Math.max(4,median*2.0), medianGap:median };
+  }
+
+  function positionWaitMetrics(pos, list, targetPick, fromPick) {
+    if (!list?.length) return { pos, best:null, bestValue:0, expectedNext:0, waitCost:0, immediateGap:0, tierCliff:false, likelyNext:null };
+    const sorted=[...list].sort((a,b)=>intrinsicValue(b)-intrinsicValue(a));
+    const best=sorted[0], bestValue=intrinsicValue(best);
+    const next=expectedMaximum(sorted,targetPick,fromPick,intrinsicValue);
+    const immediateGap=sorted[1] ? Math.max(0,bestValue-intrinsicValue(sorted[1])) : 0;
+    const stats=tierStats(sorted);
+    return {
+      pos,best,bestValue,expectedNext:next.value,
+      waitCost:Math.max(0,bestValue-next.value),
+      immediateGap,tierCliff:immediateGap>=stats.threshold,
+      cliffThreshold:stats.threshold, likelyNext:next.likely
+    };
+  }
+
+  function expectedBestOverallAfterPick(candidate, targetPick, fromPick, myCounts, myRosterN, pool) {
+    if (!targetPick) return { value:0, likely:null, confidence:1 };
+    const sim = simulatedRosterAfterPick(candidate,myCounts,myRosterN);
+    const future = pool.filter(q => {
+      if (q.id===candidate.id) return false;
+      return recommendationEligibility(q,sim.counts,sim.rosterCount).eligible;
+    });
+    return expectedMaximum(
+      future,
+      targetPick,
+      fromPick,
+      q => selectionUtility(q,sim.counts,sim.rosterCount),
+      candidate.id
+    );
   }
 
   function rebuildAnalysisCache() {
@@ -445,56 +496,69 @@
     const onClock = isMyTurn(now);
     const next = nextUserTurnFromNow();
     const following = followingUserPick();
-    const target = onClock ? following : next;
+    const selectionPick = onClock ? now : next;
+    const waitTarget = following;
     const myCounts = counts(draftSlot);
     const myRosterN = myRosterCount();
-    const opponentQB = computeOpponentQBDemand(now,next);
+    const pool = players.filter(p => !isDrafted(p) && !p.recordOnly && researchFor(p).draftable !== false);
     const byPos = {};
 
     Object.keys(replacementIndex).forEach(pos => {
-      byPos[pos] = players
-        .filter(p => p.pos===pos && !isDrafted(p) && !p.recordOnly && researchFor(p).draftable !== false)
-        .sort((a,b)=>vorp(b)-vorp(a));
+      byPos[pos] = pool.filter(p=>p.pos===pos).sort((a,b)=>intrinsicValue(b)-intrinsicValue(a));
     });
+
+    positionMetricsCache = new Map();
+    for (const pos of ["QB","RB","WR","TE","K","D/ST"]) {
+      // On your turn: cost of waiting until your following turn. Between turns: what the pool
+      // is expected to look like by your next pick.
+      const posTarget = onClock ? waitTarget : selectionPick;
+      positionMetricsCache.set(pos,positionWaitMetrics(pos,byPos[pos],posTarget,now));
+    }
+    analysisContext = { onClock, selectionPick, waitTarget };
 
     analysisCache = new Map();
     for (const p of players) {
       const r = researchFor(p);
-      const eligibility = recommendationEligibility(p, myCounts, myRosterN);
-      if (isDrafted(p) || r.draftable === false || p.recordOnly || !eligibility.eligible) {
-        analysisCache.set(p.id,{ score:-999, survival:0, need:-100, scarcity:0, opponentQB:0, intel:intelScore(p), market:marketValue(p), structuralQB:0, blockedReason:eligibility.reason || "" });
+      const eligibility = recommendationEligibility(p,myCounts,myRosterN);
+      if (isDrafted(p) || r.draftable===false || p.recordOnly || !eligibility.eligible) {
+        analysisCache.set(p.id,{score:-999,pairEV:-999,intrinsic:intrinsicValue(p),currentUtility:-999,survival:0,waitCost:0,expectedPosNext:0,tierGap:0,tierCliff:false,intel:intelScore(p),blockedReason:eligibility.reason||""});
         continue;
       }
+
+      const posMetric = positionMetricsCache.get(p.pos) || { waitCost:0,expectedNext:0 };
       const posList = byPos[p.pos] || [];
-      const idx = posList.findIndex(x=>x.id===p.id);
-      const nextTier = idx >= 0 ? posList[idx+3] : null;
-      const scarcity = isSpecialist(p) ? 0 : (idx < 0 ? 0 : !nextTier ? 2 : clamp((vorp(p)-vorp(nextTier))/16,0,7));
-      const survival = survivalToPick(p,target,now);
-      const need = needBonusFromCounts(p,myCounts,myRosterN);
-      const intel = intelScore(p);
-      const vScore = percentile(vorp(p))*100;
-      const posIndex = projectionPosIndex.get(p.id) ?? 999;
-      const posScore = clamp(100-posIndex*2.1,0,100);
-      const urgency = isSpecialist(p) ? 0 : (1-survival)*15;
-      const estimatedPenalty = p.projectionEstimated ? 1.5 : 0;
-      const unresolvedPenalty = r.unresolved ? 5 : 0;
-      const qbDemand = p.pos === "QB" ? opponentQB : 0;
-      const structuralQB = qbStructureBonus(p,myCounts,myRosterN);
-      const specialistPosScore = isSpecialist(p) ? posScore*.35 : posScore;
-      const score = vScore*.55 + specialistPosScore*.12 + need*.68 + marketValue(p)*.72 + urgency + scarcity + qbDemand + structuralQB + intel*.36 - estimatedPenalty - unresolvedPenalty;
-      analysisCache.set(p.id,{score,survival,need,scarcity,opponentQB:qbDemand,intel,market:marketValue(p),structuralQB,blockedReason:""});
+      const posIndex = posList.findIndex(x=>x.id===p.id);
+      const nextAtPos = posIndex>=0 ? posList[posIndex+1] : null;
+      const tierGap = nextAtPos ? Math.max(0,intrinsicValue(p)-intrinsicValue(nextAtPos)) : 0;
+      const stats = tierStats(posList.slice(Math.max(0,posIndex),Math.max(0,posIndex)+24));
+      const tierCliff = !!nextAtPos && tierGap>=stats.threshold;
+      const currentUtility = selectionUtility(p,myCounts,myRosterN);
+      const selectionSurvival = onClock ? 1 : survivalToPick(p,selectionPick,now);
+      const future = expectedBestOverallAfterPick(p,waitTarget,selectionPick || now,myCounts,myRosterN,pool);
+      const pairEV = currentUtility + future.value;
+
+      // When you are on the clock, score IS the two-pick expected value. Between turns,\n      // survival only discounts how realistic the player is as a target; it never boosts\n      // intrinsic player quality. This removes the old Burrow-over-Allen market-value inversion.
+      const score = onClock ? pairEV : pairEV * (.25 + .75*Math.sqrt(selectionSurvival));
+      analysisCache.set(p.id,{
+        score,pairEV,intrinsic:intrinsicValue(p),currentUtility,
+        survival:selectionSurvival,waitCost:posMetric.waitCost,
+        expectedPosNext:posMetric.expectedNext,tierGap,tierCliff,
+        likelyPosNext:posMetric.likelyNext || null,
+        nextBestOverall:future.likely || null,nextBestOverallValue:future.value,
+        intel:intelScore(p),blockedReason:""
+      });
     }
 
-    rankedIds = players
-      .filter(p => !isDrafted(p) && !p.recordOnly && researchFor(p).draftable !== false && (analysisCache.get(p.id)?.score ?? -999) > -900)
-      .sort((a,b)=>(analysisCache.get(b.id)?.score ?? -999)-(analysisCache.get(a.id)?.score ?? -999)).map(p=>p.id);
-    bpaIds = players.filter(p => !isDrafted(p) && !p.recordOnly && researchFor(p).draftable !== false)
-      .sort((a,b)=>(percentile(vorp(b))*100+intelScore(b)*.15)-(percentile(vorp(a))*100+intelScore(a)*.15)).map(p=>p.id);
+    rankedIds = pool
+      .filter(p => (analysisCache.get(p.id)?.score ?? -999)>-900 && recommendationEligibility(p,myCounts,myRosterN).eligible)
+      .sort((a,b)=>(analysisCache.get(b.id)?.score??-999)-(analysisCache.get(a.id)?.score??-999))
+      .map(p=>p.id);
+    bpaIds = pool.sort((a,b)=>intrinsicValue(b)-intrinsicValue(a)).map(p=>p.id);
     analysisRevision = stateRevision;
   }
 
   function analysisFor(p) {
-    return analysisCache.get(p.id) || { score:-999, survival:0, need:0, scarcity:0, opponentQB:0, intel:intelScore(p), market:marketValue(p), structuralQB:0, blockedReason:"" };
+    return analysisCache.get(p.id) || {score:-999,pairEV:-999,intrinsic:intrinsicValue(p),currentUtility:-999,survival:0,waitCost:0,expectedPosNext:0,tierGap:0,tierCliff:false,intel:intelScore(p),blockedReason:""};
   }
   function bestCachedAvailable(ids) {
     for (const id of ids) { const p=playerById.get(id); if (p && !isDrafted(p) && researchFor(p).draftable !== false) return p; }
@@ -516,18 +580,17 @@
 
   function reasons(p) {
     const r=researchFor(p), a=analysisFor(p), out=[];
-    if (p.pos==="QB") out.push("QB + OP league • 1 pt/completion • 6-pt pass TD");
-    if (vorp(p)>80) out.push("Strong value over replacement");
-    if (a.need>=10) out.push("Fills QB/OP priority"); else if (a.need>=7) out.push("Fills starting need");
-    if (a.survival<.30) out.push("Market says he may not reach your turn");
-    if (a.market>5) out.push("Market discount");
-    if (a.opponentQB>=4) out.push("QB demand before your turn");
-    if (p.pos==="QB" && a.structuralQB>=10) out.push("Required QB/OP starter value");
-    if (a.scarcity>=3) out.push("Positional tier drop behind him");
+    if (p.pos==="QB") out.push("QB + OP • 1 pt/completion • 6-pt pass TD");
+    if (a.intrinsic>60) out.push("High intrinsic value over replacement");
+    if (a.waitCost>=18) out.push(`Large ${p.pos} drop if you wait`);
+    else if (a.waitCost>=8) out.push(`${p.pos} wait cost is meaningful`);
+    if (a.tierCliff) out.push(`Immediate ${p.pos} tier cliff`);
+    if (a.survival<.30 && !analysisContext.onClock) out.push("Unlikely to reach your pick");
+    if (p.pos==="QB" && counts(draftSlot).QB<2) out.push("Fills QB/OP starting structure");
+    if (a.nextBestOverall) out.push(`Next-turn fallback: ${a.nextBestOverall.name}`);
     if (intelScore(p)>=5) out.push("Cumulative evidence positive");
     if (intelScore(p)<=-5) out.push("Cumulative risk elevated");
     if (r.unresolved) out.push("Unresolved high-impact uncertainty");
-    if ((+r.upside||0)>=9) out.push("High ceiling");
     return out.slice(0,5);
   }
 
@@ -580,29 +643,50 @@
     status.innerHTML=`<strong>${draft.length}</strong> ESPN picks recorded • <strong>${available().length}</strong> players available${qbRun}`;
   }
 
+  function renderPositionOutlook() {
+    const el=$("#positionOutlookGrid");
+    if(!el) return;
+    const positions=["QB","RB","WR","TE"];
+    el.innerHTML=positions.map(pos=>{
+      const m=positionMetricsCache.get(pos);
+      if(!m?.best) return `<article class="position-outlook-card"><div class="eyebrow">${pos}</div><h3>—</h3></article>`;
+      const nextName=m.likelyNext?.name || "replacement tier";
+      const cls=m.waitCost>=18?"bad":m.waitCost>=8?"warn":"good";
+      return `<article class="position-outlook-card">
+        <div class="eyebrow">${pos} WAIT COST</div>
+        <h3>${esc(m.best.name)}</h3>
+        <div class="position-value-row"><strong>${m.bestValue.toFixed(1)}</strong><span>best value now</span></div>
+        <div class="position-value-row"><strong>${m.expectedNext.toFixed(1)}</strong><span>expected at next turn</span></div>
+        <div class="chips">${pill(`Wait cost ${m.waitCost.toFixed(1)}`,cls)}${m.tierCliff?pill(`Tier gap ${m.immediateGap.toFixed(1)}`,"warn"):""}</div>
+        <p class="note">Likely best ${pos} then: ${esc(nextName)}</p>
+      </article>`;
+    }).join("");
+  }
+
   function renderDecision() {
     const now=currentPick(), best=bestCachedAvailable(rankedIds), bpa=bestCachedAvailable(bpaIds);
     const next=nextUserTurnFromNow(), after=followingUserPick(), onClock=isMyTurn(now);
-    $("#bestPickLabel").textContent=onClock?"BEST PICK RIGHT NOW":"BEST TARGET FOR YOUR NEXT PICK";
+    $("#bestPickLabel").textContent=onClock?"BEST TWO-PICK EV RIGHT NOW":"BEST REALISTIC TARGET FOR YOUR NEXT PICK";
     if (best) {
-      const target=onClock?after:next;
       const a=analysisFor(best);
-      const survText=target?`${pct(a.survival)} chance available at pick ${target}`:"final turn";
+      const posNext=a.likelyPosNext?.name || `${best.pos} pool`;
       $("#bestPickName").textContent=best.name;
-      $("#bestPickMeta").textContent=`${best.team} ${best.pos} • ${best.customProjection.toFixed(1)} projected pts • VORP ${vorp(best).toFixed(1)} • ${survText}`;
+      $("#bestPickMeta").textContent=`${best.team} ${best.pos} • Value ${a.intrinsic.toFixed(1)} • ${best.pos} wait cost ${a.waitCost.toFixed(1)} • expected ${best.pos} next turn ${a.expectedPosNext.toFixed(1)} • 2-pick EV ${a.pairEV.toFixed(1)}${onClock?"":` • ${pct(a.survival)} chance to reach pick ${next}`}`;
       $("#bestPickReasons").innerHTML=reasons(best).map(x=>`<span class="chip">${esc(x)}</span>`).join("");
     } else { $("#bestPickName").textContent="—"; $("#bestPickMeta").textContent=""; $("#bestPickReasons").innerHTML=""; }
     if (bpa) {
+      const a=analysisFor(bpa);
       $("#bpaName").textContent=bpa.name;
-      $("#bpaMeta").textContent=`${bpa.team} ${bpa.pos} • VORP ${vorp(bpa).toFixed(1)} • ESPN ${bpa.espnRank?"#"+bpa.espnRank:"est. #"+Math.round(marketRank(bpa))}`;
+      $("#bpaMeta").textContent=`${bpa.team} ${bpa.pos} • intrinsic value ${intrinsicValue(bpa).toFixed(1)} • VORP ${vorp(bpa).toFixed(1)} • ESPN ${bpa.espnRank?"#"+bpa.espnRank:"est. #"+Math.round(marketRank(bpa))}`;
     } else { $("#bpaName").textContent="—"; $("#bpaMeta").textContent=""; }
     if (next) {
       $("#nextPick").textContent=`Pick ${next}`;
-      $("#nextPickMeta").textContent=onClock?(after?`After this pick, your following turn is ${after}`:"Final turn"):`${next-now} pick${next-now===1?"":"s"} until you are on the clock`;
+      $("#nextPickMeta").textContent=onClock?(after?`Two-pick model looks ahead to pick ${after}`:"Final turn"):`${next-now} pick${next-now===1?"":"s"} until you are on the clock`;
     } else { $("#nextPick").textContent="Draft complete"; $("#nextPickMeta").textContent=""; }
     const c=counts(draftSlot);
     $("#qbPlan").textContent=c.QB===0?"QB1 is a structural priority":c.QB===1?"QB2 / OP is a structural priority":c.QB===2?"Two starting QBs secured":"QB depth only";
     $("#qbPlanMeta").textContent=`QB + OP target: 2 starting QBs • Your roster: ${c.QB} QB • ${c.RB} RB • ${c.WR} WR • ${c.TE} TE`;
+    renderPositionOutlook();
   }
 
   function intelBadgeClass(score, unresolved) {
@@ -618,11 +702,15 @@
     const buttonLabel=isMyTurn(currentPick())?"Draft":"Record";
     const eligibility = recommendationEligibility(p);
     const scoreLabel = (!eligibility.eligible && !d) ? "LATE" : (p.recordOnly?"NR":a.score>-900?a.score.toFixed(1):"OUT");
+    const posNext=a.expectedPosNext||0;
     return `<tr data-row-id="${esc(p.id)}" class="${d?"drafted":""}">
       <td class="action-col">${d?`<button class="ghost undo-one" data-id="${esc(p.id)}">Undo</button>`:p.recordOnly?`<button class="record-one" data-id="${esc(p.id)}">Record</button>`:r.draftable===false?`<button class="ghost" disabled>OUT</button>`:`<button class="record-one" data-id="${esc(p.id)}">${buttonLabel}</button>`}</td>
       <td><div class="player-name">${esc(p.name)}${r.status?` <span class="status">${esc(r.status)}</span>`:""}</div><div class="subline">${esc(p.team)}${p.recordOnly&&!d?" • record-only • no projection":""}${d?` • drafted #${d.pick} by ${d.teamSlot===draftSlot?"Your Team":"Team "+d.teamSlot}`:""}</div></td>
       <td>${pill(p.pos)}</td>
-      <td class="score-num" title="${esc(a.blockedReason||eligibility.reason||"")}">${scoreLabel}</td>
+      <td class="score-num" title="Two-pick expected value; ADP only affects availability">${scoreLabel}</td>
+      <td class="score-num">${a.intrinsic.toFixed(1)}</td>
+      <td class="score-num ${a.waitCost>=18?"metric-bad":a.waitCost>=8?"metric-warn":""}">${a.waitCost.toFixed(1)}</td>
+      <td class="score-num">${posNext.toFixed(1)}</td>
       <td class="score-num ${p.projectionEstimated?"proj-est":""}">${(+p.customProjection).toFixed(1)}${p.projectionEstimated?"*":""}</td>
       <td class="score-num">${vorp(p).toFixed(1)}</td>
       <td>${market}${adp}</td>
@@ -633,7 +721,7 @@
 
   function renderBoard() {
     const q=$("#search").value.trim().toLowerCase(), pf=$("#positionFilter").value;
-    $("#survivalHead").textContent=isMyTurn(currentPick())?"Makes next turn?":"At your pick?";
+    $("#survivalHead").textContent=isMyTurn(currentPick())?"Make back?":"At your pick?";
     const rows=players
       .filter(p=>pf==="ALL"||p.pos===pf)
       .filter(p=>!q||p.name.toLowerCase().includes(q))
