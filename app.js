@@ -1,6 +1,16 @@
 (() => {
-  const APP_VERSION = "prod-v2.2-cumulative-fast-entry";
+  const APP_VERSION = "prod-v2.3-lineup-aware-mobile";
   const MAX_PICKS = 216;
+  const LEAGUE = Object.freeze({
+    teams: 12,
+    rosterSize: 18,
+    requiredStartingQBs: 2, // QB + OP. With this scoring, OP should overwhelmingly be a QB.
+    maxK: 1,
+    maxDST: 1,
+    specialistSlots: 2,     // exactly one K and one D/ST
+    completionPoints: 1,
+    passingTdPoints: 6
+  });
   const STATE_KEY = "prod-v2";
   const LEGACY_STATE_KEY = "prod-v1";
   const LS = {
@@ -109,6 +119,34 @@
   const counts = slot => teamCounts[slot] || { QB:0,RB:0,WR:0,TE:0,K:0,"D/ST":0 };
   const teamRoster = slot => (teamDrafts[slot] || []).map(d => playerById.get(d.playerId)).filter(Boolean);
 
+  const myRosterCount = () => (teamDrafts[draftSlot] || []).length;
+  const rosterSpotsRemaining = () => Math.max(0, LEAGUE.rosterSize - myRosterCount());
+  const isSpecialist = p => p.pos === "K" || p.pos === "D/ST";
+  const missingSpecialists = c => (c.K < LEAGUE.maxK ? 1 : 0) + (c["D/ST"] < LEAGUE.maxDST ? 1 : 0);
+
+  function recommendationEligibility(p, c = counts(draftSlot), rosterCount = myRosterCount()) {
+    const spotsLeft = Math.max(0, LEAGUE.rosterSize - rosterCount);
+    const missing = missingSpecialists(c);
+
+    if (p.pos === "K") {
+      if (c.K >= LEAGUE.maxK) return { eligible:false, reason:"K roster limit reached" };
+      // Do not spend a bench slot on K before the final two roster selections.
+      if (spotsLeft > LEAGUE.specialistSlots) return { eligible:false, reason:"K reserved for final two roster picks" };
+      return { eligible:true, reason:"K due late" };
+    }
+    if (p.pos === "D/ST") {
+      if (c["D/ST"] >= LEAGUE.maxDST) return { eligible:false, reason:"D/ST roster limit reached" };
+      if (spotsLeft > LEAGUE.specialistSlots) return { eligible:false, reason:"D/ST reserved for final two roster picks" };
+      return { eligible:true, reason:"D/ST due late" };
+    }
+
+    // If every remaining roster slot is needed to fill missing K/DST, block skill players.
+    if (spotsLeft > 0 && spotsLeft <= missing) {
+      return { eligible:false, reason:"Must fill remaining K/D/ST slot(s)" };
+    }
+    return { eligible:true, reason:"" };
+  }
+
   function nextOpenPick(start = 1) {
     for (let p = clamp(start, 1, MAX_PICKS + 1); p <= MAX_PICKS; p++) if (!pickUsed(p)) return p;
     return MAX_PICKS + 1;
@@ -165,6 +203,54 @@
     players.filter(p => p.pos === pos).sort((a,b) => b.customProjection - a.customProjection)
       .forEach((p,i) => projectionPosIndex.set(p.id,i));
   });
+
+
+  // ESPN's ordinary ADP/rank is largely a 1-QB market signal. This league has a QB-eligible
+  // OP slot plus 1 point per completion and 6 points per passing TD, so QB timing must be
+  // pulled materially earlier. The curve below is intentionally moderate and then adapts
+  // to what this actual room does with QBs.
+  const qbProjectionRank = p => (projectionPosIndex.get(p.id) ?? 99) + 1;
+  const baselineLeagueQBTimingRank = p => {
+    if (p.pos !== "QB") return marketRank(p);
+    return clamp(7 + (qbProjectionRank(p) - 1) * 5.1, 1, MAX_PICKS);
+  };
+  function observedQBTimingShift() {
+    const samples = draft
+      .map(d => ({ d, p: playerById.get(d.playerId) }))
+      .filter(x => x.p?.pos === "QB" && !x.p.recordOnly)
+      .map(x => x.d.pick - baselineLeagueQBTimingRank(x.p))
+      .sort((a,b) => a-b);
+    if (samples.length < 3) return 0;
+    const mid = Math.floor(samples.length / 2);
+    const median = samples.length % 2 ? samples[mid] : (samples[mid-1] + samples[mid]) / 2;
+    return clamp(median, -22, 22);
+  }
+  function draftTimingRank(p) {
+    if (p.pos !== "QB") return marketRank(p);
+    const leagueRank = baselineLeagueQBTimingRank(p) + observedQBTimingShift();
+    // Use the earlier of ESPN's price and our OP-adjusted room expectation.
+    return clamp(Math.min(marketRank(p), leagueRank), 1, MAX_PICKS);
+  }
+
+  function qbStructureBonus(p, c, rosterCount) {
+    if (p.pos !== "QB") return 0;
+    const q = c.QB || 0;
+    const nextRosterPick = rosterCount + 1;
+
+    if (q === 0) {
+      // QB1 is a mandatory starter. Escalate if the roster develops without one.
+      return 10 + (nextRosterPick >= 4 ? 8 : 0) + (nextRosterPick >= 6 ? 10 : 0);
+    }
+    if (q === 1) {
+      // QB2 is not "bench depth" here; it is the preferred OP starter.
+      return 12 + (nextRosterPick >= 5 ? 8 : 0) + (nextRosterPick >= 7 ? 10 : 0);
+    }
+    if (q === 2) {
+      // A third starting NFL QB can be useful insurance, but should not crowd out core depth early.
+      return nextRosterPick >= 11 && qbProjectionRank(p) <= 24 ? 2 : -9;
+    }
+    return -24;
+  }
 
   const INTEL_WEIGHTS = {
     official_transaction:1.00, official_diagnosis:1.00, official_starter:1.00,
@@ -308,20 +394,39 @@
     }
   };
 
-  function needBonusFromCounts(p, c) {
-    if (p.pos === "QB") { if (c.QB===0) return 17; if (c.QB===1) return 14; if (c.QB===2) return -7; return -22; }
+  function needBonusFromCounts(p, c, rosterCount = myRosterCount()) {
+    if (p.pos === "QB") {
+      if (c.QB === 0) return 17;
+      if (c.QB === 1) return 16;
+      if (c.QB === 2) return -6;
+      return -22;
+    }
     if (p.pos === "RB") { if (c.RB===0) return 9; if (c.RB===1) return 7; if (c.RB<4) return 3; return -1; }
     if (p.pos === "WR") { if (c.WR===0) return 8; if (c.WR===1) return 7; if (c.WR<5) return 3; return -1; }
     if (p.pos === "TE") return c.TE===0 ? 5 : -5;
-    if (p.pos === "K" || p.pos === "D/ST") return draft.length < 150 ? -30 : (c[p.pos]===0 ? 2 : -15);
+
+    if (p.pos === "K" || p.pos === "D/ST") {
+      const key = p.pos;
+      if (c[key] >= 1) return -100;
+      const spotsLeft = Math.max(0, LEAGUE.rosterSize - rosterCount);
+      const missing = missingSpecialists(c);
+      if (spotsLeft > LEAGUE.specialistSlots) return -100;
+      // Once the roster has only enough space left for the missing specialist positions,
+      // they become mandatory rather than merely receiving a small preference.
+      if (spotsLeft <= missing) return 70;
+      return 24;
+    }
     return 0;
   }
   function survivalToPick(p, targetPick, fromPick = currentPick()) {
     if (!targetPick || targetPick <= fromPick) return 1;
-    const x = (targetPick - marketRank(p))/8.2;
+    if (isSpecialist(p)) return 1;
+    const x = (targetPick - draftTimingRank(p))/8.2;
     return clamp(1 - (1/(1+Math.exp(-x))), .02, .98);
   }
   function marketValue(p) {
+    // K/DST are streaming positions; normal ADP/VORP market arbitrage should not pull them forward.
+    if (isSpecialist(p)) return 0;
     const projectionPick = 1 + (1-percentile(vorp(p)))*180;
     return clamp((marketRank(p)-projectionPick)/5,-12,12);
   }
@@ -342,6 +447,7 @@
     const following = followingUserPick();
     const target = onClock ? following : next;
     const myCounts = counts(draftSlot);
+    const myRosterN = myRosterCount();
     const opponentQB = computeOpponentQBDemand(now,next);
     const byPos = {};
 
@@ -354,29 +460,33 @@
     analysisCache = new Map();
     for (const p of players) {
       const r = researchFor(p);
-      if (isDrafted(p) || r.draftable === false || p.recordOnly) {
-        analysisCache.set(p.id,{ score:-999, survival:0, need:0, scarcity:0, opponentQB:0, intel:intelScore(p), market:marketValue(p) });
+      const eligibility = recommendationEligibility(p, myCounts, myRosterN);
+      if (isDrafted(p) || r.draftable === false || p.recordOnly || !eligibility.eligible) {
+        analysisCache.set(p.id,{ score:-999, survival:0, need:-100, scarcity:0, opponentQB:0, intel:intelScore(p), market:marketValue(p), structuralQB:0, blockedReason:eligibility.reason || "" });
         continue;
       }
       const posList = byPos[p.pos] || [];
       const idx = posList.findIndex(x=>x.id===p.id);
       const nextTier = idx >= 0 ? posList[idx+3] : null;
-      const scarcity = idx < 0 ? 0 : !nextTier ? 2 : clamp((vorp(p)-vorp(nextTier))/16,0,7);
+      const scarcity = isSpecialist(p) ? 0 : (idx < 0 ? 0 : !nextTier ? 2 : clamp((vorp(p)-vorp(nextTier))/16,0,7));
       const survival = survivalToPick(p,target,now);
-      const need = needBonusFromCounts(p,myCounts);
+      const need = needBonusFromCounts(p,myCounts,myRosterN);
       const intel = intelScore(p);
       const vScore = percentile(vorp(p))*100;
       const posIndex = projectionPosIndex.get(p.id) ?? 999;
       const posScore = clamp(100-posIndex*2.1,0,100);
-      const urgency = (1-survival)*15;
+      const urgency = isSpecialist(p) ? 0 : (1-survival)*15;
       const estimatedPenalty = p.projectionEstimated ? 1.5 : 0;
       const unresolvedPenalty = r.unresolved ? 5 : 0;
       const qbDemand = p.pos === "QB" ? opponentQB : 0;
-      const score = vScore*.55 + posScore*.12 + need*.68 + marketValue(p)*.72 + urgency + scarcity + qbDemand + intel*.36 - estimatedPenalty - unresolvedPenalty;
-      analysisCache.set(p.id,{score,survival,need,scarcity,opponentQB:qbDemand,intel,market:marketValue(p)});
+      const structuralQB = qbStructureBonus(p,myCounts,myRosterN);
+      const specialistPosScore = isSpecialist(p) ? posScore*.35 : posScore;
+      const score = vScore*.55 + specialistPosScore*.12 + need*.68 + marketValue(p)*.72 + urgency + scarcity + qbDemand + structuralQB + intel*.36 - estimatedPenalty - unresolvedPenalty;
+      analysisCache.set(p.id,{score,survival,need,scarcity,opponentQB:qbDemand,intel,market:marketValue(p),structuralQB,blockedReason:""});
     }
 
-    rankedIds = players.filter(p => !isDrafted(p) && !p.recordOnly && researchFor(p).draftable !== false)
+    rankedIds = players
+      .filter(p => !isDrafted(p) && !p.recordOnly && researchFor(p).draftable !== false && (analysisCache.get(p.id)?.score ?? -999) > -900)
       .sort((a,b)=>(analysisCache.get(b.id)?.score ?? -999)-(analysisCache.get(a.id)?.score ?? -999)).map(p=>p.id);
     bpaIds = players.filter(p => !isDrafted(p) && !p.recordOnly && researchFor(p).draftable !== false)
       .sort((a,b)=>(percentile(vorp(b))*100+intelScore(b)*.15)-(percentile(vorp(a))*100+intelScore(a)*.15)).map(p=>p.id);
@@ -384,7 +494,7 @@
   }
 
   function analysisFor(p) {
-    return analysisCache.get(p.id) || { score:-999, survival:0, need:0, scarcity:0, opponentQB:0, intel:intelScore(p), market:marketValue(p) };
+    return analysisCache.get(p.id) || { score:-999, survival:0, need:0, scarcity:0, opponentQB:0, intel:intelScore(p), market:marketValue(p), structuralQB:0, blockedReason:"" };
   }
   function bestCachedAvailable(ids) {
     for (const id of ids) { const p=playerById.get(id); if (p && !isDrafted(p) && researchFor(p).draftable !== false) return p; }
@@ -406,12 +516,13 @@
 
   function reasons(p) {
     const r=researchFor(p), a=analysisFor(p), out=[];
-    if (p.pos==="QB") out.push("1 pt/completion + 6-pt pass TD");
+    if (p.pos==="QB") out.push("QB + OP league • 1 pt/completion • 6-pt pass TD");
     if (vorp(p)>80) out.push("Strong value over replacement");
     if (a.need>=10) out.push("Fills QB/OP priority"); else if (a.need>=7) out.push("Fills starting need");
     if (a.survival<.30) out.push("Market says he may not reach your turn");
     if (a.market>5) out.push("Market discount");
     if (a.opponentQB>=4) out.push("QB demand before your turn");
+    if (p.pos==="QB" && a.structuralQB>=10) out.push("Required QB/OP starter value");
     if (a.scarcity>=3) out.push("Positional tier drop behind him");
     if (intelScore(p)>=5) out.push("Cumulative evidence positive");
     if (intelScore(p)<=-5) out.push("Cumulative risk elevated");
@@ -490,8 +601,8 @@
       $("#nextPickMeta").textContent=onClock?(after?`After this pick, your following turn is ${after}`:"Final turn"):`${next-now} pick${next-now===1?"":"s"} until you are on the clock`;
     } else { $("#nextPick").textContent="Draft complete"; $("#nextPickMeta").textContent=""; }
     const c=counts(draftSlot);
-    $("#qbPlan").textContent=c.QB===0?"Get QB1":c.QB===1?"QB2 is a priority":c.QB===2?"QB room set":"QB depth only";
-    $("#qbPlanMeta").textContent=`Your roster: ${c.QB} QB • ${c.RB} RB • ${c.WR} WR • ${c.TE} TE`;
+    $("#qbPlan").textContent=c.QB===0?"QB1 is a structural priority":c.QB===1?"QB2 / OP is a structural priority":c.QB===2?"Two starting QBs secured":"QB depth only";
+    $("#qbPlanMeta").textContent=`QB + OP target: 2 starting QBs • Your roster: ${c.QB} QB • ${c.RB} RB • ${c.WR} WR • ${c.TE} TE`;
   }
 
   function intelBadgeClass(score, unresolved) {
@@ -505,11 +616,13 @@
     const adp=p.espnAdp?` • ADP ${p.espnAdp.toFixed(1)}`:"";
     const intelText=r.cumulativeNote || r.news || "No major update";
     const buttonLabel=isMyTurn(currentPick())?"Draft":"Record";
+    const eligibility = recommendationEligibility(p);
+    const scoreLabel = (!eligibility.eligible && !d) ? "LATE" : (p.recordOnly?"NR":a.score>-900?a.score.toFixed(1):"OUT");
     return `<tr data-row-id="${esc(p.id)}" class="${d?"drafted":""}">
       <td class="action-col">${d?`<button class="ghost undo-one" data-id="${esc(p.id)}">Undo</button>`:p.recordOnly?`<button class="record-one" data-id="${esc(p.id)}">Record</button>`:r.draftable===false?`<button class="ghost" disabled>OUT</button>`:`<button class="record-one" data-id="${esc(p.id)}">${buttonLabel}</button>`}</td>
       <td><div class="player-name">${esc(p.name)}${r.status?` <span class="status">${esc(r.status)}</span>`:""}</div><div class="subline">${esc(p.team)}${p.recordOnly&&!d?" • record-only • no projection":""}${d?` • drafted #${d.pick} by ${d.teamSlot===draftSlot?"Your Team":"Team "+d.teamSlot}`:""}</div></td>
       <td>${pill(p.pos)}</td>
-      <td class="score-num">${p.recordOnly?"NR":a.score>-900?a.score.toFixed(1):"OUT"}</td>
+      <td class="score-num" title="${esc(a.blockedReason||eligibility.reason||"")}">${scoreLabel}</td>
       <td class="score-num ${p.projectionEstimated?"proj-est":""}">${(+p.customProjection).toFixed(1)}${p.projectionEstimated?"*":""}</td>
       <td class="score-num">${vorp(p).toFixed(1)}</td>
       <td>${market}${adp}</td>
@@ -620,10 +733,10 @@
     fastRenderAfterPick(p);
     persistSoon();
     toast(`${p.name} recorded at pick ${pick}`);
-    input.focus({preventScroll:true});
 
-    // Heavy recommendation work is intentionally deferred between the user's turns.
-    if(isMyTurn(currentPick())) requestAnimationFrame(()=>refreshAnalysis({forceBoard:true}));
+    // Opponent picks stay on the fast path. After YOUR pick, refresh the next-target
+    // recommendation because roster needs changed; also refresh immediately before your turn.
+    if(teamSlot===draftSlot || isMyTurn(currentPick())) requestAnimationFrame(()=>refreshAnalysis({forceBoard:true}));
     else updateAnalysisFreshness();
     return true;
   }
@@ -681,7 +794,7 @@
     $("#exportBtn").onclick=exportState;
     $("#importBtn").onclick=()=>$("#importFile").click();
     $("#importFile").onchange=e=>{if(e.target.files?.[0])importState(e.target.files[0]);e.target.value="";};
-    $("#resetBtn").onclick=()=>{if(!confirm("Start a new draft? This clears all recorded ESPN picks on this device."))return;draft=[];setCurrentPick(1);rebuildDraftIndexes();stateRevision++;markDirtyAfterDraftChange();saveNow();refreshAnalysis({forceBoard:true});renderActiveTab();$("#pickEntry").focus();};
+    $("#resetBtn").onclick=()=>{if(!confirm("Start a new draft? This clears all recorded ESPN picks on this device."))return;draft=[];setCurrentPick(1);rebuildDraftIndexes();stateRevision++;markDirtyAfterDraftChange();saveNow();refreshAnalysis({forceBoard:true});renderActiveTab();};
 
     $("#pickEntry").oninput=()=>{suggestionIndex=0;renderSuggestions();};
     $("#pickEntry").onkeydown=e=>{
@@ -717,7 +830,6 @@
     stateRevision++;
     refreshAnalysis({forceBoard:true});
     renderStatus(); renderTurnPanel();
-    setTimeout(()=>$("#pickEntry").focus(),100);
   }
 
   setup();
