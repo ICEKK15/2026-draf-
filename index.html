@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="theme-color" content="#07101f" />
   <title>Picklehead247 Draft Companion</title>
-  <link rel="stylesheet" href="styles.css?v=2.6" />
+  <link rel="stylesheet" href="styles.css?v=2.7" />
 </head>
 <body>
 <header class="topbar">
@@ -152,15 +152,15 @@
   <section id="strategyTab" class="tab-pane hidden">
     <div class="strategy-grid">
       <article class="strategy-card"><div class="eyebrow">YOUR LEAGUE</div><h3>Plan for two starting quarterbacks</h3><p>1 point per completion, 6 points per passing TD, and QB eligibility in the OP slot make QB2 a structural starter. The recommendation engine now adjusts QB timing earlier than ordinary 1-QB ESPN ADP and adapts to your room.</p></article>
-      <article class="strategy-card"><div class="eyebrow">MARKET</div><h3>ADP is a timer, never a player-value bonus</h3><p>ESPN rank/ADP affects make-it-back probability, not standalone quality. Standalone value blends your supplied custom-scoring overall board with normalized VORP; raw VORP is shown for transparency but no longer controls cross-position rankings by itself.</p></article>
-      <article class="strategy-card"><div class="eyebrow">DECISION MODEL</div><h3>Player value first; wait cost breaks close calls</h3><p>Standalone custom-league value and roster fit drive the recommendation. Dynamic remaining-pool value, tier cliffs and make-it-back probability are secondary timing signals rather than the main score.</p></article>
+      <article class="strategy-card"><div class="eyebrow">PLAYER VALUE</div><h3>Your custom projections drive the board</h3><p>Standalone value is now 95% derived from your custom-scoring projection data: normalized VORP plus positional projection strength. The old sourceOrder contributes only 5% as a tie-breaker. ESPN ADP affects availability timing only.</p></article>
+      <article class="strategy-card"><div class="eyebrow">DECISION MODEL</div><h3>Player value first; timing only breaks close calls</h3><p>Standalone custom-league value and roster fit drive the recommendation. Wait cost and tier cliffs are capped and automatically fade toward zero when a player is materially behind the best option on the board.</p></article>
       <article class="strategy-card"><div class="eyebrow">LATE ROUNDS</div><h3>Exactly one K and one D/ST — at the end</h3><p>The engine blocks K and D/ST from recommendations until your final two roster selections and will never recommend a second kicker or second defense. Earlier bench picks stay focused on asymmetric RB/WR/TE upside.</p></article>
     </div>
   </section>
 </main>
 <div id="toast" class="toast hidden"></div>
-<script src="data/players.js?v=2.6"></script>
-<script src="data/research.js?v=2.6"></script>
-<script src="app.js?v=2.6"></script>
+<script src="data/players.js?v=2.7"></script>
+<script src="data/research.js?v=2.7"></script>
+<script src="app.js?v=2.7"></script>
 </body>
 </html>

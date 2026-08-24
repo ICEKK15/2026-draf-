@@ -1,5 +1,5 @@
 (() => {
-  const APP_VERSION = "prod-v2.6-clean-board";
+  const APP_VERSION = "prod-v2.7-projection-first";
   const MAX_PICKS = 216;
   const LEAGUE = Object.freeze({
     teams: 12,
@@ -231,6 +231,20 @@
   });
 
 
+  const projectionPosCount = new Map();
+  Object.keys(replacementIndex).forEach(pos => {
+    projectionPosCount.set(pos, players.filter(p => p.pos === pos && !p.recordOnly).length);
+  });
+
+  function positionalProjectionScore(p) {
+    if (!["QB","RB","WR","TE"].includes(p.pos)) return 0;
+    const idx = projectionPosIndex.get(p.id);
+    const count = projectionPosCount.get(p.pos) || 1;
+    if (idx === undefined || idx === null) return 0;
+    return 100 * (1 - idx / Math.max(1, count - 1));
+  }
+
+
   // ESPN's ordinary ADP/rank is largely a 1-QB market signal. This league has a QB-eligible
   // OP slot plus 1 point per completion and 6 points per passing TD, so QB timing must be
   // pulled materially earlier. The curve below is intentionally moderate and then adapts
@@ -448,22 +462,38 @@
     return clamp(1 - (1/(1+Math.exp(-x))), .02, .98);
   }
 
-  // Primary standalone value. This is intentionally independent of ADP.
+  // v2.7 standalone value: projection-first.
   //
-  // 72%: user's supplied custom-scoring overall board (sourceOrder)
-  // 28%: normalized VORP signal
-  // Intel is a bounded adjustment; unresolved injury risk is a bounded penalty.
+  // 55% = normalized VORP from the user's custom-scoring projections
+  // 40% = projection rank within the player's own position
+  //  5% = sourceOrder as a minor tie-breaker only
   //
-  // This prevents a deep replacement cutoff (for example WR46) from making a top WR
-  // automatically outrank elite QB/RB options simply because raw VORP is numerically larger.
+  // QB receives a small structural premium because this league starts QB + OP
+  // and awards 1 point per completion + 6 points per passing TD.
+  //
+  // ESPN ADP is deliberately excluded. ADP is used only for availability timing.
   function intrinsicValue(p) {
     const r = researchFor(p);
-    const board = customBoardRankScore(p);
-    const vorpScore = ["QB","RB","WR","TE"].includes(p.pos) ? coreVorpPercentile(vorp(p)) * 100 : 0;
-    const intelAdjustment = clamp(intelScore(p), -15, 15) * .30;
+    const vorpScore = ["QB","RB","WR","TE"].includes(p.pos)
+      ? coreVorpPercentile(vorp(p)) * 100
+      : 0;
+    const positionProjection = positionalProjectionScore(p);
+    const sourceTieBreaker = customBoardRankScore(p);
+    const qbStructure = p.pos === "QB" ? 3 : 0;
+
+    const intelAdjustment = clamp(intelScore(p), -15, 15) * .25;
     const unresolvedPenalty = r.unresolved ? 4 : 0;
     const estimatedPenalty = p.projectionEstimated ? 1.5 : 0;
-    return board*.72 + vorpScore*.28 + intelAdjustment - unresolvedPenalty - estimatedPenalty;
+
+    return (
+      vorpScore * .55 +
+      positionProjection * .40 +
+      sourceTieBreaker * .05 +
+      qbStructure +
+      intelAdjustment -
+      unresolvedPenalty -
+      estimatedPenalty
+    );
   }
 
   function selectionUtility(p, c = counts(draftSlot), rosterCount = myRosterCount()) {
@@ -551,6 +581,11 @@
       byPos[pos] = pool.filter(p=>p.pos===pos).sort((a,b)=>intrinsicValue(b)-intrinsicValue(a));
     });
 
+    const eligibleCurrentUtilities = pool
+      .filter(p => recommendationEligibility(p,myCounts,myRosterN).eligible)
+      .map(p => selectionUtility(p,myCounts,myRosterN));
+    const topCurrentUtility = eligibleCurrentUtilities.length ? Math.max(...eligibleCurrentUtilities) : 0;
+
     positionMetricsCache = new Map();
     for (const pos of ["QB","RB","WR","TE","K","D/ST"]) {
       // On your turn: cost of waiting until your following turn. Between turns: what the pool
@@ -581,22 +616,27 @@
       const future = expectedBestOverallAfterPick(p,waitTarget,selectionPick || now,myCounts,myRosterN,pool);
       const pairEV = currentUtility + future.value;
 
-      // v2.5: PLAYER VALUE IS PRIMARY.
-      // Dynamic wait cost is a secondary timing signal, capped so it can break close calls
-      // but cannot drag a materially weaker player above an elite option.
-      const waitBonus = clamp(posMetric.waitCost * .22, 0, 6);
-      const tierBonus = tierCliff ? clamp(tierGap * .12, 0, 3) : 0;
+      // v2.7: Remaining-pool/tier pressure is explicitly SECONDARY.
+      // It is allowed to separate genuinely close choices, but it fades to zero as the
+      // candidate falls behind the best current standalone/roster-adjusted option.
+      const qualityGap = Math.max(0, topCurrentUtility - currentUtility);
+      const closeCallFactor = clamp(1 - qualityGap / 8, 0, 1);
+
+      const waitBonusRaw = clamp(posMetric.waitCost * .12, 0, 3);
+      const tierBonusRaw = tierCliff ? clamp(tierGap * .08, 0, 1.5) : 0;
+      const waitBonus = waitBonusRaw * closeCallFactor;
+      const tierBonus = tierBonusRaw * closeCallFactor;
       const baseRecommendation = currentUtility + waitBonus + tierBonus;
 
-      // Between turns, survival tells us whether a target is realistic. On the clock it has
-      // no effect. Two-pick EV remains visible as diagnostic context but is NOT the ranking score.
+      // Between turns, survival only measures whether this target can realistically
+      // reach your next selection. On the clock, availability does not change player quality.
       const score = onClock
         ? baseRecommendation
         : baseRecommendation * (.30 + .70*Math.sqrt(selectionSurvival));
 
       analysisCache.set(p.id,{
         score,pairEV,intrinsic:intrinsicValue(p),currentUtility,
-        waitBonus,tierBonus,
+        waitBonus,tierBonus,qualityGap,closeCallFactor,
         survival:selectionSurvival,waitCost:posMetric.waitCost,
         expectedPosNext:posMetric.expectedNext,tierGap,tierCliff,
         likelyPosNext:posMetric.likelyNext || null,
@@ -614,7 +654,7 @@
   }
 
   function analysisFor(p) {
-    return analysisCache.get(p.id) || {score:-999,pairEV:-999,intrinsic:intrinsicValue(p),currentUtility:-999,waitBonus:0,tierBonus:0,survival:0,waitCost:0,expectedPosNext:0,tierGap:0,tierCliff:false,intel:intelScore(p),blockedReason:""};
+    return analysisCache.get(p.id) || {score:-999,pairEV:-999,intrinsic:intrinsicValue(p),currentUtility:-999,waitBonus:0,tierBonus:0,qualityGap:0,closeCallFactor:0,survival:0,waitCost:0,expectedPosNext:0,tierGap:0,tierCliff:false,intel:intelScore(p),blockedReason:""};
   }
   function bestCachedAvailable(ids) {
     for (const id of ids) { const p=playerById.get(id); if (p && !isDrafted(p) && researchFor(p).draftable !== false) return p; }
