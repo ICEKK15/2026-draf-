@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="theme-color" content="#07101f" />
   <title>Picklehead247 Draft Companion</title>
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=20260823-v2" />
 </head>
 <body>
 <header class="topbar">
@@ -26,12 +26,33 @@
 </header>
 
 <main>
+  <section class="turn-panel" aria-label="Draft turn status">
+    <article class="turn-metric current">
+      <div class="eyebrow">CURRENT PICK</div>
+      <div id="currentPickBig" class="metric-value">—</div>
+      <div id="currentPickOwner" class="metric-meta">—</div>
+    </article>
+    <article class="turn-metric">
+      <div class="eyebrow">MY NEXT PICK</div>
+      <div id="myNextPickBig" class="metric-value">—</div>
+      <div id="myNextPickMeta" class="metric-meta">—</div>
+    </article>
+    <article class="turn-metric">
+      <div class="eyebrow">PICKS UNTIL MY TURN</div>
+      <div id="picksUntilBig" class="metric-value">—</div>
+      <div id="analysisFreshness" class="metric-meta">Analysis ready</div>
+    </article>
+    <div class="turn-actions">
+      <button id="refreshBtn" class="ghost">Refresh recommendations</button>
+    </div>
+  </section>
+
   <section class="panel controls">
     <div class="control-grid">
-      <label>My ESPN draft slot
+      <label>My Draft Slot
         <select id="draftSlot"></select>
       </label>
-      <label>ESPN current pick
+      <label>Current Pick
         <input id="currentPick" type="number" min="1" max="217" value="1">
       </label>
       <label>Position
@@ -39,11 +60,13 @@
           <option value="ALL">All</option><option>QB</option><option>RB</option><option>WR</option><option>TE</option><option>K</option><option>D/ST</option>
         </select>
       </label>
-      <label>Board search
+      <label>Board Search
         <input id="search" placeholder="Filter player board…" autocomplete="off">
       </label>
     </div>
+  </section>
 
+  <section class="panel live-entry-panel">
     <div class="live-entry">
       <div class="live-entry-copy">
         <div class="eyebrow">RECORD THE NEXT ESPN PICK</div>
@@ -51,12 +74,11 @@
         <p>Type the player ESPN just drafted and press Enter. Team ownership is assigned automatically from the snake draft.</p>
       </div>
       <div class="quick-picker">
-        <input id="pickEntry" placeholder="Type player name…" autocomplete="off" autocapitalize="words">
+        <input id="pickEntry" placeholder="Type player name…" autocomplete="off" autocapitalize="words" enterkeyhint="done">
         <div id="pickSuggestions" class="suggestions hidden"></div>
       </div>
       <button id="recordTopBtn" class="primary-action" disabled>Record pick</button>
     </div>
-
     <div id="draftStatus" class="draft-status"></div>
 
     <div class="tabs">
@@ -100,7 +122,7 @@
     </div>
     <div class="table-wrap">
       <table id="playerTable">
-        <thead><tr><th>Player</th><th>Pos</th><th>Pick score</th><th>Proj</th><th>VORP</th><th>ESPN</th><th id="survivalHead">Next turn</th><th>Intel</th><th></th></tr></thead>
+        <thead><tr><th class="action-col">Draft / mark</th><th>Player</th><th>Pos</th><th>Pick score</th><th>Proj</th><th>VORP</th><th>ESPN</th><th id="survivalHead">Next turn</th><th>Intel</th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
@@ -113,21 +135,24 @@
     <div class="table-wrap"><table><thead><tr><th>Pick</th><th>Round</th><th>Team</th><th>Player</th><th>Pos</th><th></th></tr></thead><tbody id="draftLog"></tbody></table></div>
   </section>
   <section id="intelTab" class="tab-pane hidden">
-    <div class="intel-intro"><h2>News & analyst intelligence</h2><p>News changes health, role, opportunity and context. Repeated mentions from the same analyst source do not create extra conviction.</p></div>
+    <div class="intel-intro">
+      <h2>Cumulative intelligence</h2>
+      <p>New information is weighted against the full prior evidence set. Repeated coverage of the same underlying event does not create another full upgrade or downgrade.</p>
+    </div>
     <div id="intelCards" class="cards"></div>
   </section>
   <section id="strategyTab" class="tab-pane hidden">
     <div class="strategy-grid">
       <article class="strategy-card"><div class="eyebrow">YOUR LEAGUE</div><h3>QB is structurally more valuable</h3><p>1 point per completion, 6 points per passing TD, and QB eligibility in the OP slot make a strong QB2 a legitimate weekly starter—not merely bench depth.</p></article>
       <article class="strategy-card"><div class="eyebrow">MARKET</div><h3>Use ESPN price, not ESPN rank, as a timer</h3><p>The app treats ESPN rank/ADP as an estimate of when the room will draft a player. Football value and your scoring determine whether you should beat that price.</p></article>
-      <article class="strategy-card"><div class="eyebrow">EARLY ROUNDS</div><h3>Do not chase weak positional runs</h3><p>If the room pushes quarterbacks or running backs above value, take the falling elite talent. Your league still raises QB value, but price matters.</p></article>
+      <article class="strategy-card"><div class="eyebrow">LIVE DRAFT</div><h3>Fast entry first, heavy analysis when it matters</h3><p>Opponent picks register immediately. Recommendation recalculation is deferred during the run between your turns and refreshes automatically when you are on the clock.</p></article>
       <article class="strategy-card"><div class="eyebrow">LATE ROUNDS</div><h3>Favor asymmetric upside</h3><p>Prioritize contingent-value RBs, emerging roles, and receivers/tight ends whose routes or target shares can jump. Kicker and D/ST remain late selections.</p></article>
     </div>
   </section>
 </main>
 <div id="toast" class="toast hidden"></div>
-<script src="data/players.js"></script>
-<script src="data/research.js"></script>
-<script src="app.js"></script>
+<script src="data/players.js?v=20260823-v2"></script>
+<script src="data/research.js?v=20260823-v2"></script>
+<script src="app.js?v=20260823-v2"></script>
 </body>
 </html>
