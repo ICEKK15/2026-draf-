@@ -531,7 +531,7 @@ window.RESEARCH_DATA = {
   }
 };
 
-window.CUMULATIVE_INTEL_BASELINE_DATE = "2026-08-28";
+window.CUMULATIVE_INTEL_BASELINE_DATE = "2026-08-29";
 window.CUMULATIVE_INTEL = {
   "Christian Watson": {
     "outlook": 7,
