@@ -1,5 +1,5 @@
 (() => {
-  const APP_VERSION = "prod-v3.3-modular";
+  const APP_VERSION = "prod-v3.5-modular";
   const MAX_PICKS = 216;
   const LEAGUE = Object.freeze({
     teams: 12,
@@ -417,6 +417,77 @@
   }
   const intelScore = p => intelView(p).score;
 
+  // V3.4 CLOSE-CALL POLICY
+  // ----------------------
+  // Objective player value must decide the recommendation first. Football intel is
+  // deliberately NOT part of intrinsicValue() or the base recommendation score.
+  // Intel is consulted only when objective grades are close enough to be treated as
+  // a practical tie. This prevents uneven research coverage from overpowering a
+  // materially stronger projection while still letting verified role/health/news
+  // break genuinely close decisions.
+  const TIE_POLICY = Object.freeze({
+    recommendationWindow: 0.10,
+    utilityWindow: 0.10,
+    samePosProjectionPct: 0.005,
+    intelCap: 8
+  });
+
+  function intelTiebreakValue(p) {
+    const v = intelView(p);
+    const r = researchFor(p);
+    const confidence = clamp(Number(v.confidence) || 0, 0, 1);
+    const evidence = clamp(Number(v.score) || 0, -TIE_POLICY.intelCap, TIE_POLICY.intelCap) * confidence;
+    const unresolved = r.unresolved ? 2.0 : 0;
+    return evidence - unresolved;
+  }
+
+  function samePositionProjectionIsMaterial(a,b) {
+    if (!a || !b || a.pos !== b.pos) return false;
+    const pa=Math.max(0,Number(a.customProjection)||0), pb=Math.max(0,Number(b.customProjection)||0);
+    const denom=Math.max(1,Math.max(pa,pb));
+    return Math.abs(pa-pb)/denom > TIE_POLICY.samePosProjectionPct;
+  }
+
+  function recommendationComparator(a,b) {
+    const aa=analysisCache.get(a.id) || {};
+    const bb=analysisCache.get(b.id) || {};
+    const scoreDiff=(bb.score??-999)-(aa.score??-999);
+    const utilityDiff=(bb.currentUtility??-999)-(aa.currentUtility??-999);
+
+    // Same-position comparisons get the cleanest objective treatment:
+    // projection first; if projections are essentially tied, use the existing
+    // non-intel source ranking as a second objective signal; intel comes last.
+    if (a.pos === b.pos) {
+      const projectionDiff=(Number(b.customProjection)||0)-(Number(a.customProjection)||0);
+      if (samePositionProjectionIsMaterial(a,b) && Math.abs(projectionDiff) > .01) return projectionDiff;
+
+      const ar=Number(a.sourceOrder), br=Number(b.sourceOrder);
+      const aRanked=Number.isFinite(ar)&&ar>0&&ar<9999, bRanked=Number.isFinite(br)&&br>0&&br<9999;
+      if (aRanked && bRanked && ar!==br) return ar-br;
+
+      if (Math.abs(scoreDiff) > TIE_POLICY.recommendationWindow) return scoreDiff;
+      if (Math.abs(utilityDiff) > TIE_POLICY.utilityWindow) return utilityDiff;
+    } else {
+      // Across positions, the objective recommendation score already includes
+      // custom-scoring VORP, roster construction and live scarcity/wait cost.
+      if (Math.abs(scoreDiff) > TIE_POLICY.recommendationWindow) return scoreDiff;
+      if (Math.abs(utilityDiff) > TIE_POLICY.utilityWindow) return utilityDiff;
+    }
+
+    // Only genuinely close objective calls reach football intel.
+    const intelDiff=intelTiebreakValue(b)-intelTiebreakValue(a);
+    if (Math.abs(intelDiff) > .05) return intelDiff;
+
+    // Deterministic objective fallbacks.
+    if (Math.abs(scoreDiff) > .01) return scoreDiff;
+    const intrinsicDiff=intrinsicValue(b)-intrinsicValue(a);
+    if (Math.abs(intrinsicDiff) > .01) return intrinsicDiff;
+    const projectionDiff=(Number(b.customProjection)||0)-(Number(a.customProjection)||0);
+    if (Math.abs(projectionDiff) > .01) return projectionDiff;
+    if (a.pos==="QB" && b.pos==="QB") return (qbGuideFor(a)?.rank||99)-(qbGuideFor(b)?.rank||99);
+    return marketRank(a)-marketRank(b);
+  }
+
   function invalidateIntelCache() {
     intelViewCache.clear(); researchViewCache.clear(); analysisRevision = -1;
     dirty.intel = true; dirty.board = true; dirty.sleepers = true;
@@ -604,33 +675,21 @@
     return clamp(1 - (1/(1+Math.exp(-x))), .02, .98);
   }
 
-  // V3.3 standalone value: projection-first and non-duplicative.
-  //
-  // 65% = normalized VORP from the USER'S custom-scoring projections
-  // 35% = projection rank within the player's own position
-  //
-  // IMPORTANT: There is no extra "QB scoring fit" or QB-tier premium here.
-  // Completion points, passing-TD points, rushing, receptions, etc. are already
-  // inside customProjection. Positional scarcity belongs in wait-cost / QB-pool
-  // logic, not in a second scoring bonus. ESPN ADP remains timing-only.
+  // V3.4 standalone value: OBJECTIVE inputs only.
+  // 65% = normalized VORP from custom-scoring projections.
+  // 35% = projection rank within the player's own position.
+  // Football intel is excluded from player quality and is used only as a close-call tiebreaker.
+  // ESPN ADP remains a draft-timing signal rather than a player-quality input.
   function intrinsicValue(p) {
-    const r = researchFor(p);
     const vorpScore = ["QB","RB","WR","TE"].includes(p.pos)
       ? coreVorpPercentile(vorp(p)) * 100
       : 0;
     const positionProjection = positionalProjectionScore(p);
-
-    // intelScore is now FOOTBALL INTEL ONLY: health, role, usage, starter status,
-    // suspension/availability, depth-chart and other projection-changing evidence.
-    const intelAdjustment = clamp(intelScore(p), -15, 15) * .25;
-    const unresolvedPenalty = r.unresolved ? 4 : 0;
     const estimatedPenalty = p.projectionEstimated ? 1.5 : 0;
 
     return (
       vorpScore * .65 +
-      positionProjection * .35 +
-      intelAdjustment -
-      unresolvedPenalty -
+      positionProjection * .35 -
       estimatedPenalty
     );
   }
@@ -739,7 +798,7 @@
       const r = researchFor(p);
       const eligibility = recommendationEligibility(p,myCounts,myRosterN);
       if (isDrafted(p) || r.draftable===false || p.recordOnly || !eligibility.eligible) {
-        analysisCache.set(p.id,{score:-999,pairEV:-999,intrinsic:intrinsicValue(p),currentUtility:-999,survival:0,waitCost:0,expectedPosNext:0,tierGap:0,tierCliff:false,intel:intelScore(p),blockedReason:eligibility.reason||""});
+        analysisCache.set(p.id,{score:-999,pairEV:-999,intrinsic:intrinsicValue(p),currentUtility:-999,survival:0,waitCost:0,expectedPosNext:0,tierGap:0,tierCliff:false,intel:intelScore(p),intelTiebreak:intelTiebreakValue(p),blockedReason:eligibility.reason||""});
         continue;
       }
 
@@ -780,29 +839,20 @@
         expectedPosNext:posMetric.expectedNext,tierGap,tierCliff,
         likelyPosNext:posMetric.likelyNext || null,
         nextBestOverall:future.likely || null,nextBestOverallValue:future.value,
-        intel:intelScore(p),blockedReason:""
+        intel:intelScore(p),intelTiebreak:intelTiebreakValue(p),blockedReason:""
       });
     }
 
     rankedIds = pool
       .filter(p => (analysisCache.get(p.id)?.score ?? -999)>-900 && recommendationEligibility(p,myCounts,myRosterN).eligible)
-      .sort((a,b)=>{
-        const scoreDiff=(analysisCache.get(b.id)?.score??-999)-(analysisCache.get(a.id)?.score??-999);
-        if (Math.abs(scoreDiff) > .15) return scoreDiff;
-        const intrinsicDiff=intrinsicValue(b)-intrinsicValue(a);
-        if (Math.abs(intrinsicDiff) > .05) return intrinsicDiff;
-        const projectionDiff=(+b.customProjection||0)-(+a.customProjection||0);
-        if (Math.abs(projectionDiff) > .01) return projectionDiff;
-        if (a.pos==="QB" && b.pos==="QB") return (qbGuideFor(a)?.rank||99)-(qbGuideFor(b)?.rank||99);
-        return marketRank(a)-marketRank(b);
-      })
+      .sort(recommendationComparator)
       .map(p=>p.id);
     bpaIds = pool.sort((a,b)=>intrinsicValue(b)-intrinsicValue(a)).map(p=>p.id);
     analysisRevision = stateRevision;
   }
 
   function analysisFor(p) {
-    return analysisCache.get(p.id) || {score:-999,pairEV:-999,intrinsic:intrinsicValue(p),currentUtility:-999,waitBonus:0,tierBonus:0,qualityGap:0,closeCallFactor:0,survival:0,waitCost:0,expectedPosNext:0,tierGap:0,tierCliff:false,intel:intelScore(p),blockedReason:""};
+    return analysisCache.get(p.id) || {score:-999,pairEV:-999,intrinsic:intrinsicValue(p),currentUtility:-999,waitBonus:0,tierBonus:0,qualityGap:0,closeCallFactor:0,survival:0,waitCost:0,expectedPosNext:0,tierGap:0,tierCliff:false,intel:intelScore(p),intelTiebreak:intelTiebreakValue(p),blockedReason:""};
   }
   function bestCachedAvailable(ids) {
     for (const id of ids) { const p=playerById.get(id); if (p && !isDrafted(p) && researchFor(p).draftable !== false) return p; }
@@ -817,9 +867,8 @@
     const cheap=clamp((m-65)*.2,0,34), up=(+r.upside||5)*3.2, opp=(+r.opportunity||5)*2.7, skill=(+r.skills||5)*1.7;
     const healthPenalty=Math.max(0,7-(+r.health||7))*3;
     const estimatedPenalty=p.projectionEstimated?3:0;
-    const cumulative=clamp(intelScore(p),-20,20)*.55;
-    const unresolvedPenalty=r.unresolved?5:0;
-    return clamp(cheap+up+opp+skill+cumulative-healthPenalty-estimatedPenalty-unresolvedPenalty,0,100);
+    // Objective sleeper score only. Intel is consulted only if sleeper scores are nearly tied.
+    return clamp(cheap+up+opp+skill-healthPenalty-estimatedPenalty,0,100);
   }
 
   function reasons(p) {
@@ -833,8 +882,7 @@
     if (p.pos==="QB" && counts(draftSlot).QB<2) out.push("Fills QB/OP starting structure");
     if (p.pos==="QB" && counts(draftSlot).QB===2) { const qs=qbPoolSnapshot(); if(qs.level==="RED") out.push("QB3 scarcity is CRITICAL"); else if(qs.level==="YELLOW") out.push("QB3 pool is thinning"); }
     if (a.nextBestOverall) out.push(`Next-turn fallback: ${a.nextBestOverall.name}`);
-    if (intelScore(p)>=5) out.push("Football intel raises projection confidence");
-    if (intelScore(p)<=-5) out.push("Football intel lowers projection confidence");
+    if (Math.abs(intelTiebreakValue(p))>=2.5) out.push("Football intel applies only as a close-call tiebreaker");
     if (r.unresolved) out.push("Unresolved high-impact uncertainty");
     return out.slice(0,5);
   }
@@ -910,6 +958,42 @@
     }).join("");
   }
 
+
+  function renderPositionOptions() {
+    const el=$("#positionOptionsGrid");
+    if(!el) return;
+    const myCounts=counts(draftSlot), rosterN=myRosterCount();
+    const positions=["QB","RB","WR","TE"];
+
+    const candidateList = pos => {
+      const metric=positionMetricsCache.get(pos);
+      const excludeId=metric?.best?.id || null;
+      return players
+        .filter(p => p.pos===pos && p.id!==excludeId && !isDrafted(p) && !p.recordOnly && researchFor(p).draftable!==false)
+        .filter(p => recommendationEligibility(p,myCounts,rosterN).eligible)
+        .sort(recommendationComparator)
+        .slice(0,5);
+    };
+
+    el.innerHTML=positions.map(pos=>{
+      const list=candidateList(pos);
+      const rows=list.length ? list.map((p,i)=>{
+        const an=analysisFor(p);
+        const espn=p.espnRank?`ESPN #${p.espnRank}`:`Est #${Math.round(marketRank(p))}`;
+        const tag=aggregateExpertTag(p);
+        return `<div class="position-option">
+          <div>
+            <div class="position-option-name">${i+2}. ${esc(p.name)}</div>
+            <div class="position-option-meta">${esc(p.team)} • Proj ${Number(p.customProjection||0).toFixed(1)} • ${espn} • ${esc(tag)}</div>
+            <button class="ghost guide-one" type="button" data-guide-id="${esc(p.id)}">ⓘ Analysis</button>
+          </div>
+          <div class="position-option-score">Rec<br>${an.score>-900?an.score.toFixed(1):"—"}</div>
+        </div>`;
+      }).join("") : `<div class="muted">No additional eligible ${pos}s.</div>`;
+      return `<article class="position-options-card"><div class="eyebrow">${pos} ALTERNATIVES</div><h4>Next 5 available</h4><div class="position-option-list">${rows}</div></article>`;
+    }).join("");
+  }
+
   function renderDecision() {
     const now=currentPick(), best=bestCachedAvailable(rankedIds), bpa=bestCachedAvailable(bpaIds);
     const next=nextUserTurnFromNow(), after=followingUserPick(), onClock=isMyTurn(now);
@@ -935,6 +1019,7 @@
     $("#qbPlan").textContent=c.QB===0?"QB1 is a structural priority":c.QB===1?"QB2 / OP is a structural priority":c.QB===2?(qs.level==="RED"?"🚨 Take QB3 now":qs.level==="YELLOW"?"QB3 decision zone":"Two starters secured • watch QB3"):c.QB===3?"Three-QB objective secured":"QB4 only at extreme value";
     $("#qbPlanMeta").textContent=`Preferred roster: 3 QBs • ${qs.draftedQBs} league QBs drafted • ${qs.goodRemaining.length} Good+ remain • Your roster: ${c.QB} QB • ${c.RB} RB • ${c.WR} WR • ${c.TE} TE`;
     renderPositionOutlook();
+    renderPositionOptions();
   }
 
   function intelBadgeClass(score, unresolved) {
@@ -992,7 +1077,7 @@
   }
 
   function renderSleepers() {
-    const s=available().filter(p=>!p.recordOnly&&marketRank(p)>=65&&researchFor(p).draftable!==false).sort((a,b)=>sleeperScore(b)-sleeperScore(a)).slice(0,40);
+    const s=available().filter(p=>!p.recordOnly&&marketRank(p)>=65&&researchFor(p).draftable!==false).sort((a,b)=>{const d=sleeperScore(b)-sleeperScore(a);if(Math.abs(d)>2)return d;const intel=intelTiebreakValue(b)-intelTiebreakValue(a);if(Math.abs(intel)>.05)return intel;return intrinsicValue(b)-intrinsicValue(a);}).slice(0,40);
     $("#sleeperCards").innerHTML=s.map(p=>{const r=researchFor(p),a=analysisFor(p);return `<article class="sleeper-card"><div class="eyebrow">${esc(p.pos)} • ${esc(p.team)} • ${p.espnRank?"ESPN #"+p.espnRank:"market est #"+Math.round(marketRank(p))}</div><h3>${esc(p.name)}</h3><div class="big-score">${Math.round(sleeperScore(p))}</div><div class="muted">Sleeper / value score</div><p class="note">${esc(r.cumulativeNote||r.note||r.news||"Cheap player with a projection-driven path to value.")}</p><div class="chips">${pill(`Proj ${p.customProjection.toFixed(1)}${p.projectionEstimated?"*":""}`)}${pill(`VORP ${vorp(p).toFixed(1)}`)}${pill(`Availability ${pct(a.survival)}`)}</div><button class="ghost guide-cta guide-one" data-guide-id="${esc(p.id)}">ⓘ Player guidance</button></article>`;}).join("");
     dirty.sleepers=false;
   }
@@ -1116,11 +1201,30 @@
 
   function toast(msg){const t=$("#toast");t.textContent=msg;t.classList.remove("hidden");clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.add("hidden"),1500);}
 
+
+  function setupCollapsible(buttonSelector, bodySelector, storageKey) {
+    const btn=$(buttonSelector), body=$(bodySelector);
+    if(!btn || !body) return;
+    const apply = collapsed => {
+      body.classList.toggle("collapsed",collapsed);
+      btn.setAttribute("aria-expanded",String(!collapsed));
+      btn.textContent=collapsed?"Show":"Hide";
+      try { localStorage.setItem(storageKey,collapsed?"1":"0"); } catch {}
+    };
+    let collapsed=false;
+    try { collapsed=localStorage.getItem(storageKey)==="1"; } catch {}
+    apply(collapsed);
+    btn.onclick=()=>apply(!body.classList.contains("collapsed"));
+  }
+
   function setup() {
     rebuildDraftIndexes();
     $("#draftSlot").innerHTML=Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}</option>`).join("");
     draftSlot=clamp(draftSlot,1,12); $("#draftSlot").value=draftSlot;
     setCurrentPick(pickOverride || nextOpenPick(1));
+
+    setupCollapsible("#qbCollapseBtn","#qbScarcityBody","p247_ui_qb_collapsed");
+    setupCollapsible("#poolCollapseBtn","#positionOutlookBody","p247_ui_pool_collapsed");
 
     $("#draftSlot").onchange=e=>{draftSlot=+e.target.value;stateRevision++;saveNow();markDirtyAfterDraftChange();refreshAnalysis({forceBoard:true});renderActiveTab();};
     $("#currentPick").onchange=e=>{setCurrentPick(+e.target.value);stateRevision++;saveNow();refreshAnalysis({forceBoard:true});};

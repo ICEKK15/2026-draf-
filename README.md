@@ -1,8 +1,28 @@
-# Picklehead247 Draft Companion — Production V3.3
+# Picklehead247 Draft Companion — Production V3.5
 
-## V3.3 ranking-model correction
+## V3.5 — draft-night layout + quick alternatives
 
-V3.3 removes scoring-system double counting from the recommendation engine.
+- **My Draft Slot** is now the first control at the top of the app, with Current Pick beside it.
+- **QB Pool** and **Dynamic Remaining Pool** are collapsible; each panel remembers its collapsed/open state on that browser.
+- **Dynamic Remaining Pool** now shows five additional available options at QB, RB, WR and TE beneath the wait-cost cards. These alternatives use the same V3.4 objective-first recommendation policy: custom projection/value and live draft economics first, intel only as a close-call tiebreaker.
+- **Record the Next ESPN Pick** now sits immediately above the full Draft Board.
+- Position and Board Search controls moved beside the Draft Board, where they are used.
+- Ranking math from V3.4 is unchanged.
+
+## V3.4 — objective first, intel only as a tiebreaker
+
+The recommendation engine now uses a strict hierarchy across **all players and all positions**:
+
+1. Objective custom-scoring value (projection, VORP, positional projection strength).
+2. Roster construction and live draft economics (need, scarcity, wait cost, tier cliff).
+3. Football intel **only when the objective comparison is close**.
+
+A recommendation-score gap greater than 0.10 or current-utility gap greater than 0.10 is treated as a clear objective edge and cannot be overturned by intel. For players at the same position, a season projection difference greater than 0.5% also wins before intel is considered. For same-position players within 0.5% of each other, the existing non-intel source ranking is consulted before intel. Intel is confidence-weighted, capped, and missing intel is neutral. Unresolved injury/role uncertainty can only affect a close-call tiebreak. Sleeper ordering follows the same policy.
+
+
+## V3.4 ranking-model correction
+
+V3.4 removes scoring-system double counting from the recommendation engine.
 
 - **Custom projection** is the only place where league scoring traits are valued (1 point/completion, 6-point passing TDs, PPR, rushing, etc.).
 - **Football intel** can numerically adjust rankings only for projection-changing evidence: injuries, role/usage, starter status, suspension/availability, depth-chart changes, offensive-line context, and similar facts.
@@ -40,4 +60,4 @@ Draft state is stored in browser localStorage and the app retains Import/Export 
 ## V3.2 hotfix
 - Fixed a startup render crash in the Expert column caused by omitted aggregateExpertTag/expertTagClass helpers during the V3.1 modular split.
 - Verified PLAYER_DATA loads 421 players and the initial Draft Board renders successfully.
-- V3.2 fixed the render crash; V3.3 supersedes it and uses cache version `20260828-v3.3`.
+- V3.2 fixed the render crash; V3.5 supersedes prior builds and uses cache version `20260828-v3.5`.

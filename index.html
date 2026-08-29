@@ -1,203 +1,213 @@
-<!doctype html>
+<!DOCTYPE html>
+
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <meta name="theme-color" content="#07101f" />
-  <title>Picklehead247 Draft Companion</title>
-  <link rel="stylesheet" href="styles.css?v=20260828-v3.3">
+<meta charset="utf-8"/>
+<meta content="width=device-width,initial-scale=1,viewport-fit=cover" name="viewport"/>
+<meta content="#07101f" name="theme-color"/>
+<title>Picklehead247 Draft Companion</title>
+<link href="styles.css?v=20260828-v3.5" rel="stylesheet"/>
 </head>
 <body>
 <header class="topbar">
-  <div class="brand-row">
-    <div class="logo">P247</div>
-    <div>
-      <h1>Draft Companion</h1>
-      <p>2026 • Draft-night v3 • custom scoring • QB + OP + QB3 scarcity</p>
-    </div>
-  </div>
-  <div class="top-actions">
-    <button id="undoBtn" class="ghost">Undo last</button>
-    <button id="exportBtn" class="ghost">Export</button>
-    <button id="importBtn" class="ghost">Import</button>
-    <button id="resetBtn" class="danger ghost">New draft</button>
-    <input id="importFile" type="file" accept="application/json,.json" hidden>
-  </div>
-</header>
-
-<main>
-  <section class="turn-panel" aria-label="Draft turn status">
-    <article class="turn-metric current">
-      <div class="eyebrow">CURRENT PICK</div>
-      <div id="currentPickBig" class="metric-value">—</div>
-      <div id="currentPickOwner" class="metric-meta">—</div>
-    </article>
-    <article class="turn-metric">
-      <div class="eyebrow">MY NEXT PICK</div>
-      <div id="myNextPickBig" class="metric-value">—</div>
-      <div id="myNextPickMeta" class="metric-meta">—</div>
-    </article>
-    <article class="turn-metric">
-      <div class="eyebrow">PICKS UNTIL MY TURN</div>
-      <div id="picksUntilBig" class="metric-value">—</div>
-      <div id="analysisFreshness" class="metric-meta">Analysis ready</div>
-    </article>
-    <div class="turn-actions">
-      <button id="refreshBtn" class="ghost">Refresh recommendations</button>
-    </div>
-  </section>
-
-  <section id="qbScarcityPanel" class="panel qb-scarcity qb-green" aria-live="polite">
-    <div class="qb-scarcity-main">
-      <div>
-        <div id="qbAlertLabel" class="eyebrow">QB POOL • HEALTHY</div>
-        <h2 id="qbAlertTitle">QB3 can wait</h2>
-        <p id="qbAlertMeta">Live scarcity will update as picks are recorded.</p>
-      </div>
-      <div class="qb-scarcity-stats">
-        <div class="qb-stat"><strong id="qbDraftedCount">0</strong><span>QBs drafted</span></div>
-        <div class="qb-stat"><strong id="qbGoodRemaining">24</strong><span>Good+ left</span></div>
-        <div class="qb-stat"><strong id="qbExpectedBeforeNext">0</strong><span>Expected before return</span></div>
-      </div>
-    </div>
-    <div id="qbRemainingNames" class="chips qb-pool-names"></div>
-  </section>
-
-  <section class="panel controls">
-    <div class="control-grid">
-      <label>My Draft Slot
-        <select id="draftSlot"></select>
-      </label>
-      <label>Current Pick
-        <input id="currentPick" type="number" min="1" max="217" value="1">
-      </label>
-      <label>Position
-        <select id="positionFilter">
-          <option value="ALL">All</option><option>QB</option><option>RB</option><option>WR</option><option>TE</option><option>K</option><option>D/ST</option>
-        </select>
-      </label>
-      <label>Board Search
-        <input id="search" placeholder="Filter player board…" autocomplete="off">
-      </label>
-    </div>
-  </section>
-
-  <section class="panel live-entry-panel">
-    <div class="live-entry">
-      <div class="live-entry-copy">
-        <div class="eyebrow">RECORD THE NEXT ESPN PICK</div>
-        <div id="turnBadge" class="turn-title">—</div>
-        <p>Type the player ESPN just drafted and press Enter. Team ownership is assigned automatically from the snake draft.</p>
-      </div>
-      <div class="quick-picker">
-        <input id="pickEntry" type="search" name="p247-player-search-2026" placeholder="Type player name…" autocomplete="new-password" autocorrect="off" autocapitalize="none" spellcheck="false" inputmode="search" enterkeyhint="search">
-        <div id="pickSuggestions" class="suggestions hidden"></div>
-      </div>
-      <button id="recordTopBtn" type="button" class="primary-action" disabled>Record pick</button>
-    </div>
-    <div id="draftStatus" class="draft-status"></div>
-
-    <div class="tabs">
-      <button class="tab active" data-tab="board">Draft Board</button>
-      <button class="tab" data-tab="sleepers">Values / Sleepers</button>
-      <button class="tab" data-tab="rosters">Rosters</button>
-      <button class="tab" data-tab="log">Draft Log</button>
-      <button class="tab" data-tab="intel">Intel</button>
-      <button class="tab" data-tab="strategy">League Strategy</button>
-    </div>
-  </section>
-
-  <section class="decision-grid">
-    <article class="hero-card">
-      <div class="eyebrow" id="bestPickLabel">BEST PICK RIGHT NOW</div>
-      <h2 id="bestPickName">—</h2>
-      <p id="bestPickMeta"></p>
-      <div id="bestPickReasons" class="chips"></div>
-      <button id="bestPickGuideBtn" type="button" class="ghost guide-cta" disabled>Why this player?</button>
-    </article>
-    <article class="decision-card">
-      <div class="eyebrow">BEST PLAYER AVAILABLE</div>
-      <h3 id="bpaName">—</h3>
-      <p id="bpaMeta"></p>
-    </article>
-    <article class="decision-card">
-      <div class="eyebrow">YOUR NEXT TURN</div>
-      <h3 id="nextPick">—</h3>
-      <p id="nextPickMeta"></p>
-    </article>
-    <article class="decision-card">
-      <div class="eyebrow">QB / OP PLAN</div>
-      <h3 id="qbPlan">—</h3>
-      <p id="qbPlanMeta"></p>
-    </article>
-  </section>
-
-  <section class="position-outlook panel" aria-label="Dynamic positional wait cost">
-    <div class="position-outlook-head">
-      <div><div class="eyebrow">DYNAMIC REMAINING POOL</div><h2>What do you lose by waiting?</h2></div>
-      <p class="muted">Secondary timing signal only. Standalone player value remains the primary recommendation driver. Wait cost estimates what you may lose at a position by waiting until the relevant next turn.</p>
-    </div>
-    <div id="positionOutlookGrid" class="position-outlook-grid"></div>
-  </section>
-
-  <section id="boardTab" class="tab-pane">
-    <div class="board-toolbar">
-      <div id="poolCount" class="muted"></div>
-      <div class="legend"><span class="dot supplied"></span> supplied projection <span class="dot estimated"></span> estimated fill-in</div>
-    </div>
-    <div class="table-wrap">
-      <table id="playerTable">
-        <thead><tr><th class="action-col">Draft / mark</th><th>Player</th><th>Pos</th><th>Guidance</th><th>Recommendation</th><th>Standalone</th><th>Wait cost</th><th>Pos next</th><th>Proj</th><th>VORP</th><th>ESPN</th><th>Expert</th><th id="survivalHead">Make back?</th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </div>
-  </section>
-
-  <section id="sleepersTab" class="tab-pane hidden"><div id="sleeperCards" class="cards"></div></section>
-  <section id="rostersTab" class="tab-pane hidden"><div id="rosterGrid" class="roster-grid"></div></section>
-  <section id="logTab" class="tab-pane hidden">
-    <div class="log-toolbar"><p class="muted">This is the board you entered from ESPN. Undo any individual pick if you recorded the wrong player.</p></div>
-    <div class="table-wrap"><table><thead><tr><th>Pick</th><th>Round</th><th>Team</th><th>Player</th><th>Pos</th><th></th></tr></thead><tbody id="draftLog"></tbody></table></div>
-  </section>
-  <section id="intelTab" class="tab-pane hidden">
-    <div class="intel-intro">
-      <h2>Cumulative intelligence</h2>
-      <p>New information is weighted against the full prior evidence set. Repeated coverage of the same underlying event does not create another full upgrade or downgrade.</p>
-    </div>
-    <div id="intelCards" class="cards"></div>
-  </section>
-  <section id="strategyTab" class="tab-pane hidden">
-    <div class="strategy-grid">
-      <article class="strategy-card"><div class="eyebrow">YOUR LEAGUE</div><h3>Prefer 3 QBs — protect the 24-QB cliff</h3><p>QB + OP means two weekly starters, while 1 point per completion and 6 points per passing TD amplify elite-QB advantage. Prefer QB1 + QB2 early, then acquire a secure QB3 before the Good tier disappears. QB20–22 is a warning zone; QB23–24 is critical.</p></article>
-      <article class="strategy-card"><div class="eyebrow">PLAYER VALUE</div><h3>Your custom projections drive the board</h3><p>Standalone value is now 95% derived from your custom-scoring projection data: normalized VORP plus positional projection strength. The old sourceOrder contributes only 5% as a tie-breaker. ESPN ADP affects availability timing only.</p></article><article class="strategy-card"><div class="eyebrow">EXPERT TAG</div><h3>Aggregated research label</h3><p>The Expert column summarizes the cumulative evidence we reviewed into labels such as BREAKOUT, VALUE, SLEEPER, FADE, WAIT, UP, DOWN or HOLD. It is descriptive; the underlying intel score—not the label text—is what affects recommendations.</p></article>
-      <article class="strategy-card"><div class="eyebrow">DECISION MODEL</div><h3>Positional advantage + live scarcity</h3><p>Custom projections remain primary, with an explicit QB-tier premium for this scoring. The QB3 bonus activates only when the pool is thinning or critical, so the app can reach for a strong third QB in Rounds 5–7 without blindly forcing QB3 over elite RB/WR value.</p></article>
-      <article class="strategy-card"><div class="eyebrow">LATE ROUNDS</div><h3>Exactly one K and one D/ST — at the end</h3><p>The engine blocks K and D/ST from recommendations until your final two roster selections and will never recommend a second kicker or second defense. Earlier bench picks stay focused on asymmetric RB/WR/TE upside.</p></article>
-    </div>
-  </section>
-</main>
-
-<div id="playerGuideModal" class="guide-modal hidden" role="dialog" aria-modal="true" aria-labelledby="guideName">
-  <div class="guide-backdrop" data-close-guide="1"></div>
-  <article class="guide-sheet">
-    <button id="guideCloseBtn" class="ghost guide-close" type="button" aria-label="Close player analysis">✕</button>
-    <div id="guideEyebrow" class="eyebrow">PLAYER GUIDANCE</div>
-    <h2 id="guideName">—</h2>
-    <div id="guideTags" class="chips"></div>
-    <p id="guideSummary" class="guide-summary"></p>
-    <div class="guide-grid">
-      <div class="guide-box"><h4>Draft range / verdict</h4><p id="guideTarget"></p></div>
-      <div class="guide-box"><h4>Custom-scoring guidance</h4><p id="guideCustom"></p></div>
-      <div class="guide-box"><h4>Why</h4><p id="guideWhy"></p></div>
-      <div class="guide-box"><h4>Main risks</h4><p id="guideRisks"></p></div>
-    </div>
-    <div id="guideOutcomes" class="guide-outcomes"></div>
-    <div id="guideFooter" class="guide-footer"></div>
-  </article>
+<div class="brand-row">
+<div class="logo">P247</div>
+<div>
+<h1>Draft Companion</h1>
+<p>2026 • Draft-night v3.5 • custom scoring • QB + OP + QB3 scarcity</p>
 </div>
-<div id="toast" class="toast hidden"></div>
-<script src="data/players.js?v=20260828-v3.3"></script>
-<script src="data/research.js?v=20260828-v3.3"></script>
-<script src="data/guidance.js?v=20260828-v3.3"></script>
-<script src="app.js?v=20260828-v3.3"></script>
+</div>
+<div class="top-actions">
+<button class="ghost" id="undoBtn">Undo last</button>
+<button class="ghost" id="exportBtn">Export</button>
+<button class="ghost" id="importBtn">Import</button>
+<button class="danger ghost" id="resetBtn">New draft</button>
+<input accept="application/json,.json" hidden="" id="importFile" type="file"/>
+</div>
+</header>
+<main>
+<section aria-label="Draft setup" class="panel draft-setup-panel">
+<div class="draft-setup-copy">
+<div class="eyebrow">DRAFT SETUP</div>
+<h2>My Draft Slot</h2>
+<p>Set your slot as soon as ESPN reveals the order. The snake-turn, scarcity and survival models update immediately.</p>
+</div>
+<div class="draft-setup-controls">
+<label>My Draft Slot
+      <select id="draftSlot"></select>
+</label>
+<label>Current Pick
+      <input id="currentPick" max="217" min="1" type="number" value="1"/>
+</label>
+</div>
+</section><section aria-label="Draft turn status" class="turn-panel">
+<article class="turn-metric current">
+<div class="eyebrow">CURRENT PICK</div>
+<div class="metric-value" id="currentPickBig">—</div>
+<div class="metric-meta" id="currentPickOwner">—</div>
+</article>
+<article class="turn-metric">
+<div class="eyebrow">MY NEXT PICK</div>
+<div class="metric-value" id="myNextPickBig">—</div>
+<div class="metric-meta" id="myNextPickMeta">—</div>
+</article>
+<article class="turn-metric">
+<div class="eyebrow">PICKS UNTIL MY TURN</div>
+<div class="metric-value" id="picksUntilBig">—</div>
+<div class="metric-meta" id="analysisFreshness">Analysis ready</div>
+</article>
+<div class="turn-actions">
+<button class="ghost" id="refreshBtn">Refresh recommendations</button>
+</div>
+</section>
+<section aria-live="polite" class="panel qb-scarcity qb-green" id="qbScarcityPanel">
+<div class="collapsible-head">
+<div>
+<div class="eyebrow" id="qbAlertLabel">QB POOL • HEALTHY</div>
+<h2 id="qbAlertTitle">QB3 can wait</h2>
+</div>
+<button aria-controls="qbScarcityBody" aria-expanded="true" class="ghost collapse-toggle" id="qbCollapseBtn" type="button">Hide</button>
+</div>
+<div class="collapsible-body" id="qbScarcityBody">
+<div class="qb-scarcity-main qb-scarcity-details">
+<p id="qbAlertMeta">Live scarcity will update as picks are recorded.</p>
+<div class="qb-scarcity-stats">
+<div class="qb-stat"><strong id="qbDraftedCount">0</strong><span>QBs drafted</span></div>
+<div class="qb-stat"><strong id="qbGoodRemaining">24</strong><span>Good+ left</span></div>
+<div class="qb-stat"><strong id="qbExpectedBeforeNext">0</strong><span>Expected before return</span></div>
+</div>
+</div>
+<div class="chips qb-pool-names" id="qbRemainingNames"></div>
+</div>
+</section>
+
+
+<section class="decision-grid">
+<article class="hero-card">
+<div class="eyebrow" id="bestPickLabel">BEST PICK RIGHT NOW</div>
+<h2 id="bestPickName">—</h2>
+<p id="bestPickMeta"></p>
+<div class="chips" id="bestPickReasons"></div>
+<button class="ghost guide-cta" disabled="" id="bestPickGuideBtn" type="button">Why this player?</button>
+</article>
+<article class="decision-card">
+<div class="eyebrow">BEST PLAYER AVAILABLE</div>
+<h3 id="bpaName">—</h3>
+<p id="bpaMeta"></p>
+</article>
+<article class="decision-card">
+<div class="eyebrow">YOUR NEXT TURN</div>
+<h3 id="nextPick">—</h3>
+<p id="nextPickMeta"></p>
+</article>
+<article class="decision-card">
+<div class="eyebrow">QB / OP PLAN</div>
+<h3 id="qbPlan">—</h3>
+<p id="qbPlanMeta"></p>
+</article>
+</section>
+<section aria-label="Dynamic positional wait cost" class="position-outlook panel" id="positionOutlookPanel">
+<div class="collapsible-head position-outlook-title">
+<div><div class="eyebrow">DYNAMIC REMAINING POOL</div><h2>What do you lose by waiting?</h2></div>
+<button aria-controls="positionOutlookBody" aria-expanded="true" class="ghost collapse-toggle" id="poolCollapseBtn" type="button">Hide</button>
+</div>
+<div class="collapsible-body" id="positionOutlookBody">
+<p class="muted position-outlook-explainer">Secondary timing signal only. Standalone player value remains the primary recommendation driver. Wait cost estimates what you may lose at a position by waiting until the relevant next turn.</p>
+<div class="position-outlook-grid" id="positionOutlookGrid"></div>
+<div class="other-options-head">
+<div><div class="eyebrow">OTHER OPTIONS AT THIS PICK</div><h3>5 more players to consider by position</h3></div>
+<p class="muted">Objective-first ranking using your custom projection/value model, live draft economics, and intel only as a close-call tiebreaker.</p>
+</div>
+<div class="position-options-grid" id="positionOptionsGrid"></div>
+</div>
+</section>
+<section class="panel live-entry-panel">
+<div class="live-entry">
+<div class="live-entry-copy">
+<div class="eyebrow">RECORD THE NEXT ESPN PICK</div>
+<div class="turn-title" id="turnBadge">—</div>
+<p>Type the player ESPN just drafted and press Enter. Team ownership is assigned automatically from the snake draft.</p>
+</div>
+<div class="quick-picker">
+<input autocapitalize="none" autocomplete="new-password" autocorrect="off" enterkeyhint="search" id="pickEntry" inputmode="search" name="p247-player-search-2026" placeholder="Type player name…" spellcheck="false" type="search"/>
+<div class="suggestions hidden" id="pickSuggestions"></div>
+</div>
+<button class="primary-action" disabled="" id="recordTopBtn" type="button">Record pick</button>
+</div>
+<div class="draft-status" id="draftStatus"></div>
+<div class="tabs">
+<button class="tab active" data-tab="board">Draft Board</button>
+<button class="tab" data-tab="sleepers">Values / Sleepers</button>
+<button class="tab" data-tab="rosters">Rosters</button>
+<button class="tab" data-tab="log">Draft Log</button>
+<button class="tab" data-tab="intel">Intel</button>
+<button class="tab" data-tab="strategy">League Strategy</button>
+</div>
+</section><section class="tab-pane" id="boardTab">
+<div class="board-filter-panel">
+<label>Position
+    <select id="positionFilter">
+<option value="ALL">All</option><option>QB</option><option>RB</option><option>WR</option><option>TE</option><option>K</option><option>D/ST</option>
+</select>
+</label>
+<label>Board Search
+    <input autocomplete="off" id="search" placeholder="Filter player board…"/>
+</label>
+</div><div class="board-toolbar">
+<div class="muted" id="poolCount"></div>
+<div class="legend"><span class="dot supplied"></span> supplied projection <span class="dot estimated"></span> estimated fill-in</div>
+</div>
+<div class="table-wrap">
+<table id="playerTable">
+<thead><tr><th class="action-col">Draft / mark</th><th>Player</th><th>Pos</th><th>Guidance</th><th>Recommendation</th><th>Standalone</th><th>Wait cost</th><th>Pos next</th><th>Proj</th><th>VORP</th><th>ESPN</th><th>Expert</th><th id="survivalHead">Make back?</th></tr></thead>
+<tbody></tbody>
+</table>
+</div>
+</section>
+<section class="tab-pane hidden" id="sleepersTab"><div class="cards" id="sleeperCards"></div></section>
+<section class="tab-pane hidden" id="rostersTab"><div class="roster-grid" id="rosterGrid"></div></section>
+<section class="tab-pane hidden" id="logTab">
+<div class="log-toolbar"><p class="muted">This is the board you entered from ESPN. Undo any individual pick if you recorded the wrong player.</p></div>
+<div class="table-wrap"><table><thead><tr><th>Pick</th><th>Round</th><th>Team</th><th>Player</th><th>Pos</th><th></th></tr></thead><tbody id="draftLog"></tbody></table></div>
+</section>
+<section class="tab-pane hidden" id="intelTab">
+<div class="intel-intro">
+<h2>Cumulative intelligence</h2>
+<p>New information is weighted against the full prior evidence set. Repeated coverage of the same underlying event does not create another full upgrade or downgrade.</p>
+</div>
+<div class="cards" id="intelCards"></div>
+</section>
+<section class="tab-pane hidden" id="strategyTab">
+<div class="strategy-grid">
+<article class="strategy-card"><div class="eyebrow">YOUR LEAGUE</div><h3>Prefer 3 QBs — protect the 24-QB cliff</h3><p>QB + OP means two weekly starters, while 1 point per completion and 6 points per passing TD amplify elite-QB advantage. Prefer QB1 + QB2 early, then acquire a secure QB3 before the Good tier disappears. QB20–22 is a warning zone; QB23–24 is critical.</p></article>
+<article class="strategy-card"><div class="eyebrow">PLAYER VALUE</div><h3>Your custom projections drive the board</h3><p>Standalone value is derived from your custom-scoring projection data: normalized VORP plus positional projection strength. ESPN ADP affects availability timing only; it does not make a player better or worse.</p></article><article class="strategy-card"><div class="eyebrow">EXPERT TAG</div><h3>Aggregated research label</h3><p>The Expert column summarizes cumulative evidence into labels such as BREAKOUT, VALUE, SLEEPER, FADE, WAIT, UP, DOWN or HOLD. Intel is descriptive first and can only break a genuinely close objective comparison; it cannot override a clear projection/value edge.</p></article>
+<article class="strategy-card"><div class="eyebrow">DECISION MODEL</div><h3>Positional advantage + live scarcity</h3><p>Custom projections and positional value are primary. Live scarcity and wait cost determine timing. QB3 urgency activates only when the pool is thinning or critical, so the app can reach for a strong third QB without giving quarterbacks a hidden second scoring bonus.</p></article>
+<article class="strategy-card"><div class="eyebrow">LATE ROUNDS</div><h3>Exactly one K and one D/ST — at the end</h3><p>The engine blocks K and D/ST from recommendations until your final two roster selections and will never recommend a second kicker or second defense. Earlier bench picks stay focused on asymmetric RB/WR/TE upside.</p></article>
+</div>
+</section>
+</main>
+<div aria-labelledby="guideName" aria-modal="true" class="guide-modal hidden" id="playerGuideModal" role="dialog">
+<div class="guide-backdrop" data-close-guide="1"></div>
+<article class="guide-sheet">
+<button aria-label="Close player analysis" class="ghost guide-close" id="guideCloseBtn" type="button">✕</button>
+<div class="eyebrow" id="guideEyebrow">PLAYER GUIDANCE</div>
+<h2 id="guideName">—</h2>
+<div class="chips" id="guideTags"></div>
+<p class="guide-summary" id="guideSummary"></p>
+<div class="guide-grid">
+<div class="guide-box"><h4>Draft range / verdict</h4><p id="guideTarget"></p></div>
+<div class="guide-box"><h4>Custom-scoring guidance</h4><p id="guideCustom"></p></div>
+<div class="guide-box"><h4>Why</h4><p id="guideWhy"></p></div>
+<div class="guide-box"><h4>Main risks</h4><p id="guideRisks"></p></div>
+</div>
+<div class="guide-outcomes" id="guideOutcomes"></div>
+<div class="guide-footer" id="guideFooter"></div>
+</article>
+</div>
+<div class="toast hidden" id="toast"></div>
+<script src="data/players.js?v=20260828-v3.5"></script>
+<script src="data/research.js?v=20260828-v3.5"></script>
+<script src="data/guidance.js?v=20260828-v3.5"></script>
+<script src="app.js?v=20260828-v3.5"></script>
 </body>
 </html>
