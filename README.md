@@ -1,63 +1,46 @@
-# Picklehead247 Draft Companion — Production V3.5
+# Picklehead247 Draft Companion — FINAL Production V3.6
 
-## V3.5 — draft-night layout + quick alternatives
+## Draft-night build
+- Confirmed snake slot: **1.06**. The build applies slot 6 once on first load so older mock-draft browser state cannot silently leave the wrong slot selected.
+- ESPN projection pages **1–6** are integrated. For the supplied rows, ESPN's displayed **FPTS** is treated as the exact custom-scoring season projection baseline.
+- 250 supplied ESPN projection rows were refreshed and 31 missing late-board players/units were added to the database.
+- ESPN ADP/rank is still **timing only**, never a player-quality input.
 
-- **My Draft Slot** is now the first control at the top of the app, with Current Pick beside it.
-- **QB Pool** and **Dynamic Remaining Pool** are collapsible; each panel remembers its collapsed/open state on that browser.
-- **Dynamic Remaining Pool** now shows five additional available options at QB, RB, WR and TE beneath the wait-cost cards. These alternatives use the same V3.4 objective-first recommendation policy: custom projection/value and live draft economics first, intel only as a close-call tiebreaker.
-- **Record the Next ESPN Pick** now sits immediately above the full Draft Board.
-- Position and Board Search controls moved beside the Draft Board, where they are used.
-- Ranking math from V3.4 is unchanged.
+## QB / Superflex policy
+- QB + OP means two weekly QB starters are structurally preferred.
+- Replacement baseline remains **QB25** for a 12-team two-QB environment.
+- The companion now derives the preferred **QB1–24** pool directly from objective custom projections plus confirmed job security, instead of relying on hand-authored QB tier labels.
+- A third-QB bench cliff around **QB30** is tracked conceptually; target three QBs, but do not force QB3 before the pool becomes thin/critical.
+- Unresolved starting jobs (Las Vegas, Atlanta) are not counted as secure QB3 options.
 
-## V3.4 — objective first, intel only as a tiebreaker
+## Ranking hierarchy
+1. Exact custom-scoring projection / VORP / positional projection strength.
+2. Live roster construction, scarcity, wait cost and turn survival.
+3. Football intel only as a close-call tiebreaker.
 
-The recommendation engine now uses a strict hierarchy across **all players and all positions**:
+Same-position players with >0.5% projection separation are ordered by projection first. Within 0.5%, the existing non-intel source order acts as the next objective signal before any intel tiebreak.
 
-1. Objective custom-scoring value (projection, VORP, positional projection strength).
-2. Roster construction and live draft economics (need, scarcity, wait cost, tier cliff).
-3. Football intel **only when the objective comparison is close**.
-
-A recommendation-score gap greater than 0.10 or current-utility gap greater than 0.10 is treated as a clear objective edge and cannot be overturned by intel. For players at the same position, a season projection difference greater than 0.5% also wins before intel is considered. For same-position players within 0.5% of each other, the existing non-intel source ranking is consulted before intel. Intel is confidence-weighted, capped, and missing intel is neutral. Unresolved injury/role uncertainty can only affect a close-call tiebreak. Sleeper ordering follows the same policy.
-
-
-## V3.4 ranking-model correction
-
-V3.4 removes scoring-system double counting from the recommendation engine.
-
-- **Custom projection** is the only place where league scoring traits are valued (1 point/completion, 6-point passing TDs, PPR, rushing, etc.).
-- **Football intel** can numerically adjust rankings only for projection-changing evidence: injuries, role/usage, starter status, suspension/availability, depth-chart changes, offensive-line context, and similar facts.
-- **Draft economics** (QB scarcity, expected survival, wait cost, roster construction, tier cliffs) determine *when* to take a player and remain separate from projected production.
-- Legacy analyst/expert grades remain visible as context but no longer add a second numerical vote.
-- QB tier labels remain guidance/scarcity inputs; they no longer add an extra hidden scoring premium inside intrinsic player value.
-- Close recommendation ties are resolved deterministically by standalone value, custom projection, and then QB guidance rank.
-
-This specifically prevents cases such as Joe Burrow receiving custom-scoring credit in his projection and then receiving the same completion-volume credit again through narrative intel.
-
-Recommended GitHub Pages production structure.
+## Draft-night UX retained
+- Sticky Draft/mark action on the far left.
+- Fast opponent-pick entry with deferred heavy recalculation between your turns.
+- Current pick / next pick / picks-until-turn cards.
+- Collapsible QB pool and dynamic remaining pool.
+- Five alternatives at QB/RB/WR/TE.
+- Player analysis modal with verdict, target range, probabilities, risks and custom-scoring note.
+- Import/export and localStorage state persistence.
+- Exactly one K and one D/ST; specialists held until the final roster slots.
 
 ## Files
-- `index.html` — application shell / UI markup
-- `styles.css` — responsive/mobile styling
-- `app.js` — live draft engine, recommendation logic, QB scarcity alerts, persistence
-- `data/players.js` — player/projection/ESPN market data
-- `data/research.js` — cumulative evidence model, team context, post-baseline intel events
-- `data/guidance.js` — QB tiers and player-specific actionable guidance
-- `.nojekyll` — serves the repository directly through GitHub Pages
-- `backup-single.html` — emergency self-contained backup; not the recommended production entry point
+- `index.html`
+- `styles.css`
+- `app.js`
+- `data/players.js`
+- `data/research.js`
+- `data/guidance.js`
+- `.nojekyll`
+- `backup-single.html` — emergency offline/single-file backup
 
 ## Deploy
-Upload/replace the files at the repository root preserving the `data/` folder. GitHub Pages should point to the branch/root containing `index.html`.
+Replace the prior GitHub Pages files with this entire folder, preserving the `data/` directory. The cache-bust version is `20260829-v3.6`.
 
-Do **not** rename or flatten the `data/` directory unless you also change the script paths in `index.html`.
-
-## Why this is the recommended build
-The modular layout lets the browser cache large player/intelligence files independently, makes last-minute news updates safer, and keeps app logic separate from data. Runtime draft speed remains effectively the same after initial load.
-
-## Draft-night state
-Draft state is stored in browser localStorage and the app retains Import/Export controls. Before replacing an already-used build, export state if you have a live/valuable mock draft you want to preserve.
-
-
-## V3.2 hotfix
-- Fixed a startup render crash in the Expert column caused by omitted aggregateExpertTag/expertTagClass helpers during the V3.1 modular split.
-- Verified PLAYER_DATA loads 421 players and the initial Draft Board renders successfully.
-- V3.2 fixed the render crash; V3.5 supersedes prior builds and uses cache version `20260828-v3.5`.
+Before the live draft, press **New draft** once if your browser still contains mock-draft picks. The V3.6 slot migration changes only the slot to 6; it intentionally does not delete saved picks.

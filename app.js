@@ -1,5 +1,5 @@
 (() => {
-  const APP_VERSION = "prod-v3.5-modular";
+  const APP_VERSION = "prod-v3.6-final";
   const MAX_PICKS = 216;
   const LEAGUE = Object.freeze({
     teams: 12,
@@ -9,8 +9,11 @@
     maxDST: 1,
     specialistSlots: 2,     // exactly one K and one D/ST
     completionPoints: 1,
-    passingTdPoints: 6
+    passingTdPoints: 6,
+    thirdQBReplacementIndex: 30
   });
+  const DRAFT_SLOT_DEFAULT = 6;
+  const SLOT_MIGRATION_KEY = `p247_slot_default_${APP_VERSION}`;
   const STATE_KEY = "prod-v2";
   const LEGACY_STATE_KEY = "prod-v1";
   const LS = {
@@ -49,7 +52,14 @@
   const firstStored = (newKey, oldKey, fallback) => localStorage.getItem(newKey) ?? localStorage.getItem(oldKey) ?? fallback;
   let draft = safeParse(firstStored(LS.draft, LEGACY_LS.draft, "[]"), []);
   if (!Array.isArray(draft)) draft = [];
-  let draftSlot = Number(firstStored(LS.slot, LEGACY_LS.slot, "1") || 1);
+  let draftSlot = Number(firstStored(LS.slot, LEGACY_LS.slot, String(DRAFT_SLOT_DEFAULT)) || DRAFT_SLOT_DEFAULT);
+  // Draft-night build is specifically for the confirmed 1.06 slot. Apply this once so
+  // older mock-draft localStorage cannot silently leave the user at the wrong snake slot.
+  if (localStorage.getItem(SLOT_MIGRATION_KEY) !== "1") {
+    draftSlot = DRAFT_SLOT_DEFAULT;
+    localStorage.setItem(LS.slot, String(DRAFT_SLOT_DEFAULT));
+    localStorage.setItem(SLOT_MIGRATION_KEY, "1");
+  }
   let pickOverride = Number(firstStored(LS.pick, LEGACY_LS.pick, "1") || 1);
   let selectedQuickId = null;
   let suggestionIndex = 0;
@@ -268,6 +278,36 @@
     return clamp(7 + (qbProjectionRank(p) - 1) * 4.4, 1, MAX_PICKS);
   };
   const baselineTimingRank = p => p.pos === "QB" ? Math.min(marketRank(p), baselineLeagueQBTimingRank(p)) : marketRank(p);
+
+  // Draft-night QB scarcity is now derived from the exact custom-scoring projections,
+  // not from hand-authored tier labels. Yahoo/TruMedia's Superflex replacement research
+  // supports QB25 as the two-starter replacement line and roughly QB30 once benches fill.
+  const qbObjectiveOrder = (a,b) => {
+    const pa=+a.customProjection||0, pb=+b.customProjection||0;
+    const rel=Math.abs(pa-pb)/Math.max(1,pa,pb);
+    if (rel > .005) return pb-pa;
+    const sa=Number(a.sourceOrder), sb=Number(b.sourceOrder);
+    if (Number.isFinite(sa) && Number.isFinite(sb) && sa!==sb) return sa-sb;
+    return pb-pa || String(a.name).localeCompare(String(b.name));
+  };
+  const secureQBInitial = players
+    .filter(p => p.pos === "QB" && qbGuideFor(p)?.job === "SECURE" && !p.recordOnly)
+    .sort(qbObjectiveOrder);
+  const usableQBInitial = players
+    .filter(p => p.pos === "QB" && ["SECURE","SECURE_RISK"].includes(qbGuideFor(p)?.job) && !p.recordOnly)
+    .sort(qbObjectiveOrder);
+  const preferredQBInitialRank = new Map(secureQBInitial.map((p,i)=>[p.id,i+1]));
+  const usableQBInitialRank = new Map(usableQBInitial.map((p,i)=>[p.id,i+1]));
+  const preferredQBIds = new Set(secureQBInitial.slice(0,24).map(p=>p.id));
+  const usableQBIds = new Set(usableQBInitial.slice(0,LEAGUE.thirdQBReplacementIndex-1).map(p=>p.id));
+  const qbDraftClass = p => {
+    const r=preferredQBInitialRank.get(p?.id) || usableQBInitialRank.get(p?.id) || 99;
+    if (r<=7) return 1;
+    if (r<=16) return 2;
+    if (r<=24) return 3;
+    if (r<LEAGUE.thirdQBReplacementIndex) return 4;
+    return 5;
+  };
 
   // Learn how this specific room is drafting each position. A negative shift means
   // the room is taking the position earlier than its baseline market expectation.
@@ -524,8 +564,8 @@
     const multiplier=roomShift<0 ? 1+Math.min(.35,Math.abs(roomShift)/45) : 1-Math.min(.20,roomShift/60);
     const expectedTaken=Math.max(0,Math.round(demand*multiplier));
     const draftedQBs=draft.filter(d=>playerById.get(d.playerId)?.pos==="QB").length;
-    const goodRemaining=players.filter(p=>p.pos==="QB"&&!isDrafted(p)&&qbTierNum(p)<=3&&qbGuideFor(p)?.job==="SECURE").sort((a,b)=>(qbGuideFor(a)?.rank||99)-(qbGuideFor(b)?.rank||99));
-    const usableRemaining=players.filter(p=>p.pos==="QB"&&!isDrafted(p)&&qbTierNum(p)<=4&&["SECURE","SECURE_RISK"].includes(qbGuideFor(p)?.job)).sort((a,b)=>(qbGuideFor(a)?.rank||99)-(qbGuideFor(b)?.rank||99));
+    const goodRemaining=players.filter(p=>preferredQBIds.has(p.id)&&!isDrafted(p)).sort((a,b)=>(preferredQBInitialRank.get(a.id)||99)-(preferredQBInitialRank.get(b.id)||99));
+    const usableRemaining=players.filter(p=>usableQBIds.has(p.id)&&!isDrafted(p)).sort((a,b)=>(usableQBInitialRank.get(a.id)||99)-(usableQBInitialRank.get(b.id)||99));
     const survivalMargin=goodRemaining.length-expectedTaken;
     let level="GREEN";
     if(c.QB>=3) level="SECURED";
@@ -581,7 +621,7 @@
       summary:qg?.summary || iv.note || r.note || r.news || "Projection-led player. Use the live board, positional wait cost and market timing together.",
       why:r.note || iv.note || "Custom projection and current role are the primary inputs.",
       risks:r.unresolved ? "High-impact uncertainty remains unresolved." : (intelScore(p)<=-5 ? "Cumulative risk is elevated." : "No additional player-specific risk note stored; use the Intel tab for current context."),
-      outcomes:[],tags,custom:qg ? "QB value is adjusted for 1 point per completion, 6-point passing TDs and the QB-eligible OP slot." : "Custom projections remain the primary player-value input.",
+      outcomes:[],tags,custom:qg ? "QB value is adjusted for 1 point per completion, 6-point passing TDs and the QB-eligible OP slot." : "ESPN custom-scoring projections are the primary player-value input where supplied.",
       confidence:`${Math.round((iv.confidence||.65)*100)}%`,source:`Cumulative model through ${baselineDate}`
     };
   }
@@ -612,24 +652,24 @@
     const label=s.level==="SECURED"?"QB ROOM • 3 QBs SECURED":`QB POOL • ${s.level==="RED"?"CRITICAL":s.level==="YELLOW"?"THINNING":"HEALTHY"}`;
     $("#qbAlertLabel").textContent=label;
     let title,meta;
-    if(s.level==="SECURED") { title="QB3 objective complete"; meta="Do not force QB4. Only take a fourth if a secure Good-tier starter becomes an extreme value."; }
-    else if(c.QB<2 && s.level==="RED") { title="🚨 Take a starting QB now"; meta=`You have ${c.QB} QB. ${s.goodRemaining.length} preferred Good+ QBs remain; ~${s.expectedTaken} could go before your return.`; }
-    else if(c.QB<2 && s.level==="YELLOW") { title="QB1/QB2 priority is rising"; meta=`${s.draftedQBs} QBs are gone and ${s.goodRemaining.length} preferred Good+ options remain.`; }
-    else if(c.QB===2 && s.level==="RED") { title="🚨 QB3 ALERT — take the QB"; meta=`Preferred pool is near the cliff: ${s.goodRemaining.length} Good+ QBs remain; ~${s.expectedTaken} are expected before your next turn.`; }
+    if(s.level==="SECURED") { title="QB3 objective complete"; meta="Do not force QB4. Only take a fourth if a secure projected starter becomes an extreme value."; }
+    else if(c.QB<2 && s.level==="RED") { title="🚨 Take a starting QB now"; meta=`You have ${c.QB} QB. ${s.goodRemaining.length} preferred projected QB1-24 options remain; ~${s.expectedTaken} could go before your return.`; }
+    else if(c.QB<2 && s.level==="YELLOW") { title="QB1/QB2 priority is rising"; meta=`${s.draftedQBs} QBs are gone and ${s.goodRemaining.length} preferred projected QB1-24 options remain.`; }
+    else if(c.QB===2 && s.level==="RED") { title="🚨 QB3 ALERT — take the QB"; meta=`Preferred pool is near the cliff: ${s.goodRemaining.length} projected QB1-24 options remain; ~${s.expectedTaken} are expected before your next turn.`; }
     else if(c.QB===2 && s.level==="YELLOW") { title="Start considering QB3 now"; meta=`QB${s.draftedQBs+1} range is approaching the cliff. A Great/Good QB3 can justify a Round 5–7 reach.`; }
-    else if(c.QB===2) { title="QB3 can wait — for now"; meta=`${s.goodRemaining.length} Good+ QBs remain. Keep exploiting RB/WR value until the pool turns yellow.`; }
-    else { title="QB pool still healthy"; meta=`${s.goodRemaining.length} Good+ QBs remain; live room demand before your return is ~${s.expectedTaken}.`; }
+    else if(c.QB===2) { title="QB3 can wait — for now"; meta=`${s.goodRemaining.length} projected QB1-24 options remain. Keep exploiting RB/WR value until the pool turns yellow.`; }
+    else { title="QB pool still healthy"; meta=`${s.goodRemaining.length} projected QB1-24 options remain; live room demand before your return is ~${s.expectedTaken}.`; }
     $("#qbAlertTitle").textContent=title; $("#qbAlertMeta").textContent=meta;
     $("#qbDraftedCount").textContent=String(s.draftedQBs); $("#qbGoodRemaining").textContent=String(s.goodRemaining.length); $("#qbExpectedBeforeNext").textContent=String(s.expectedTaken);
-    const names=s.goodRemaining.slice(0,8).map(p=>{ const g=qbGuideFor(p); return pill(`${p.name} • ${g.tier}`,`qb-tier-${g.tier.toLowerCase()}`); }).join("");
-    $("#qbRemainingNames").innerHTML=names || pill("Preferred Good+ tier exhausted","bad");
+    const names=s.goodRemaining.slice(0,8).map(p=>{ const g=qbGuideFor(p); const qr=preferredQBInitialRank.get(p.id); return pill(`${p.name} • proj QB${qr}${g?.tier?` • ${g.tier}`:""}`,`qb-tier-${String(g?.tier||"okay").toLowerCase()}`); }).join("");
+    $("#qbRemainingNames").innerHTML=names || pill("Preferred QB1-24 pool exhausted","bad");
   }
 
   function needBonusFromCounts(p, c, rosterCount = myRosterCount()) {
     // Roster fit matters, but it must not overpower player quality. QB1/QB2 bonuses
     // escalate only if the roster develops without filling the QB + OP structure.
     if (p.pos === "QB") {
-      const g=qbGuideFor(p), tier=qbTierNum(p);
+      const g=qbGuideFor(p), tier=qbDraftClass(p);
       if (g?.job==="BACKUP") return -40;
       if (g?.job==="DANGER") return c.QB<2 ? -14 : -24;
       if (c.QB === 0) {
@@ -824,17 +864,25 @@
       const tierBonusRaw = tierCliff ? clamp(tierGap * .08, 0, 1.5) : 0;
       const waitBonus = waitBonusRaw * closeCallFactor;
       const tierBonus = tierBonusRaw * closeCallFactor;
-      const baseRecommendation = currentUtility + waitBonus + tierBonus;
 
-      // Between turns, survival only measures whether this target can realistically
-      // reach your next selection. On the clock, availability does not change player quality.
-      const score = onClock
-        ? baseRecommendation
-        : baseRecommendation * (.30 + .70*Math.sqrt(selectionSurvival));
+      // Timing is not player quality, but draft capital matters. Do not recommend spending
+      // pick 1.06 on a player the Superflex/ESPN timing model expects to survive far later.
+      // This penalty fades completely as the player's expected market window approaches.
+      const timingAnchor = selectionPick || now;
+      const timingGap = Math.max(0, draftTimingRank(p) - timingAnchor - 4);
+      const reachPenalty = clamp(timingGap * .35, 0, 7);
+      const baseRecommendation = currentUtility + waitBonus + tierBonus - reachPenalty;
+
+      // Survival is an availability estimate, not player quality. Do not multiply a
+      // premium player's grade down simply because he may be selected before 1.06; the
+      // live board will remove him if that happens. Only near-impossible targets receive
+      // a modest planning penalty between turns.
+      const availabilityPenalty = onClock ? 0 : selectionSurvival < .08 ? 6 : selectionSurvival < .15 ? 3 : 0;
+      const score = baseRecommendation - availabilityPenalty;
 
       analysisCache.set(p.id,{
         score,pairEV,intrinsic:intrinsicValue(p),currentUtility,
-        waitBonus,tierBonus,qualityGap,closeCallFactor,
+        waitBonus,tierBonus,reachPenalty,availabilityPenalty,qualityGap,closeCallFactor,
         survival:selectionSurvival,waitCost:posMetric.waitCost,
         expectedPosNext:posMetric.expectedNext,tierGap,tierCliff,
         likelyPosNext:posMetric.likelyNext || null,
@@ -852,7 +900,7 @@
   }
 
   function analysisFor(p) {
-    return analysisCache.get(p.id) || {score:-999,pairEV:-999,intrinsic:intrinsicValue(p),currentUtility:-999,waitBonus:0,tierBonus:0,qualityGap:0,closeCallFactor:0,survival:0,waitCost:0,expectedPosNext:0,tierGap:0,tierCliff:false,intel:intelScore(p),intelTiebreak:intelTiebreakValue(p),blockedReason:""};
+    return analysisCache.get(p.id) || {score:-999,pairEV:-999,intrinsic:intrinsicValue(p),currentUtility:-999,waitBonus:0,tierBonus:0,reachPenalty:0,availabilityPenalty:0,qualityGap:0,closeCallFactor:0,survival:0,waitCost:0,expectedPosNext:0,tierGap:0,tierCliff:false,intel:intelScore(p),intelTiebreak:intelTiebreakValue(p),blockedReason:""};
   }
   function bestCachedAvailable(ids) {
     for (const id of ids) { const p=playerById.get(id); if (p && !isDrafted(p) && researchFor(p).draftable !== false) return p; }
@@ -879,6 +927,7 @@
     else if (a.waitCost>=8) out.push(`${p.pos} wait cost is meaningful`);
     if (a.tierCliff) out.push(`Immediate ${p.pos} tier cliff`);
     if (a.survival<.30 && !analysisContext.onClock) out.push("Unlikely to reach your pick");
+    if ((a.reachPenalty||0)>=3) out.push("Likely available later — avoid the reach");
     if (p.pos==="QB" && counts(draftSlot).QB<2) out.push("Fills QB/OP starting structure");
     if (p.pos==="QB" && counts(draftSlot).QB===2) { const qs=qbPoolSnapshot(); if(qs.level==="RED") out.push("QB3 scarcity is CRITICAL"); else if(qs.level==="YELLOW") out.push("QB3 pool is thinning"); }
     if (a.nextBestOverall) out.push(`Next-turn fallback: ${a.nextBestOverall.name}`);
@@ -934,7 +983,7 @@
       if (openQBNeed>=3 && q<2) qbRun=` • <strong>${openQBNeed}</strong> teams before you still have fewer than 2 QBs`;
     }
     const qs=qbPoolSnapshot();
-    status.innerHTML=`<strong>${draft.length}</strong> ESPN picks recorded • <strong>${available().length}</strong> players available${qbRun} • QB pool: <strong>${qs.draftedQBs} drafted / ${qs.goodRemaining.length} Good+ left</strong>`;
+    status.innerHTML=`<strong>${draft.length}</strong> ESPN picks recorded • <strong>${available().length}</strong> players available${qbRun} • QB pool: <strong>${qs.draftedQBs} drafted / ${qs.goodRemaining.length} preferred QB1-24 left</strong>`;
     renderQBScarcity();
   }
 
@@ -1017,7 +1066,7 @@
     } else { $("#nextPick").textContent="Draft complete"; $("#nextPickMeta").textContent=""; }
     const c=counts(draftSlot), qs=qbPoolSnapshot(c);
     $("#qbPlan").textContent=c.QB===0?"QB1 is a structural priority":c.QB===1?"QB2 / OP is a structural priority":c.QB===2?(qs.level==="RED"?"🚨 Take QB3 now":qs.level==="YELLOW"?"QB3 decision zone":"Two starters secured • watch QB3"):c.QB===3?"Three-QB objective secured":"QB4 only at extreme value";
-    $("#qbPlanMeta").textContent=`Preferred roster: 3 QBs • ${qs.draftedQBs} league QBs drafted • ${qs.goodRemaining.length} Good+ remain • Your roster: ${c.QB} QB • ${c.RB} RB • ${c.WR} WR • ${c.TE} TE`;
+    $("#qbPlanMeta").textContent=`Preferred roster: 3 QBs • ${qs.draftedQBs} league QBs drafted • ${qs.goodRemaining.length} preferred QB1-24 remain • Your roster: ${c.QB} QB • ${c.RB} RB • ${c.WR} WR • ${c.TE} TE`;
     renderPositionOutlook();
     renderPositionOptions();
   }

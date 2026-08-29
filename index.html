@@ -6,7 +6,7 @@
 <meta content="width=device-width,initial-scale=1,viewport-fit=cover" name="viewport"/>
 <meta content="#07101f" name="theme-color"/>
 <title>Picklehead247 Draft Companion</title>
-<link href="styles.css?v=20260828-v3.5" rel="stylesheet"/>
+<link href="styles.css?v=20260829-v3.6" rel="stylesheet"/>
 </head>
 <body>
 <header class="topbar">
@@ -14,7 +14,7 @@
 <div class="logo">P247</div>
 <div>
 <h1>Draft Companion</h1>
-<p>2026 • Draft-night v3.5 • custom scoring • QB + OP + QB3 scarcity</p>
+<p>2026 • FINAL v3.6 • pick 1.06 • ESPN custom projections • QB + OP + QB3 scarcity</p>
 </div>
 </div>
 <div class="top-actions">
@@ -30,7 +30,7 @@
 <div class="draft-setup-copy">
 <div class="eyebrow">DRAFT SETUP</div>
 <h2>My Draft Slot</h2>
-<p>Set your slot as soon as ESPN reveals the order. The snake-turn, scarcity and survival models update immediately.</p>
+<p>Confirmed draft slot: 1.06. This build defaults to slot 6; snake-turn, scarcity and survival models update immediately.</p>
 </div>
 <div class="draft-setup-controls">
 <label>My Draft Slot
@@ -73,7 +73,7 @@
 <p id="qbAlertMeta">Live scarcity will update as picks are recorded.</p>
 <div class="qb-scarcity-stats">
 <div class="qb-stat"><strong id="qbDraftedCount">0</strong><span>QBs drafted</span></div>
-<div class="qb-stat"><strong id="qbGoodRemaining">24</strong><span>Good+ left</span></div>
+<div class="qb-stat"><strong id="qbGoodRemaining">24</strong><span>Preferred QB1-24 left</span></div>
 <div class="qb-stat"><strong id="qbExpectedBeforeNext">0</strong><span>Expected before return</span></div>
 </div>
 </div>
@@ -179,8 +179,8 @@
 </section>
 <section class="tab-pane hidden" id="strategyTab">
 <div class="strategy-grid">
-<article class="strategy-card"><div class="eyebrow">YOUR LEAGUE</div><h3>Prefer 3 QBs — protect the 24-QB cliff</h3><p>QB + OP means two weekly starters, while 1 point per completion and 6 points per passing TD amplify elite-QB advantage. Prefer QB1 + QB2 early, then acquire a secure QB3 before the Good tier disappears. QB20–22 is a warning zone; QB23–24 is critical.</p></article>
-<article class="strategy-card"><div class="eyebrow">PLAYER VALUE</div><h3>Your custom projections drive the board</h3><p>Standalone value is derived from your custom-scoring projection data: normalized VORP plus positional projection strength. ESPN ADP affects availability timing only; it does not make a player better or worse.</p></article><article class="strategy-card"><div class="eyebrow">EXPERT TAG</div><h3>Aggregated research label</h3><p>The Expert column summarizes cumulative evidence into labels such as BREAKOUT, VALUE, SLEEPER, FADE, WAIT, UP, DOWN or HOLD. Intel is descriptive first and can only break a genuinely close objective comparison; it cannot override a clear projection/value edge.</p></article>
+<article class="strategy-card"><div class="eyebrow">YOUR LEAGUE</div><h3>Prefer 3 QBs — protect the 24-QB cliff</h3><p>QB + OP means two weekly starters, while 1 point per completion and 6 points per passing TD amplify elite-QB advantage. Prefer QB1 + QB2 early, then acquire a secure QB3 before the projected QB1-24 pool disappears. Independent Superflex replacement research supports QB25 as the two-starter replacement line and roughly QB30 once benches fill; your completion-heavy scoring makes the premium QBs even more valuable.</p></article>
+<article class="strategy-card"><div class="eyebrow">PLAYER VALUE</div><h3>Exact ESPN custom projections drive the board</h3><p>Where you supplied ESPN 2026 projections, the exact ESPN FPTS value is the production baseline. Standalone value uses normalized VORP plus positional projection strength. ESPN ADP/rank affects availability timing only; it does not make a player better or worse.</p></article><article class="strategy-card"><div class="eyebrow">EXPERT TAG</div><h3>Aggregated research label</h3><p>The Expert column summarizes cumulative evidence into labels such as BREAKOUT, VALUE, SLEEPER, FADE, WAIT, UP, DOWN or HOLD. Intel is descriptive first and can only break a genuinely close objective comparison; it cannot override a clear projection/value edge.</p></article>
 <article class="strategy-card"><div class="eyebrow">DECISION MODEL</div><h3>Positional advantage + live scarcity</h3><p>Custom projections and positional value are primary. Live scarcity and wait cost determine timing. QB3 urgency activates only when the pool is thinning or critical, so the app can reach for a strong third QB without giving quarterbacks a hidden second scoring bonus.</p></article>
 <article class="strategy-card"><div class="eyebrow">LATE ROUNDS</div><h3>Exactly one K and one D/ST — at the end</h3><p>The engine blocks K and D/ST from recommendations until your final two roster selections and will never recommend a second kicker or second defense. Earlier bench picks stay focused on asymmetric RB/WR/TE upside.</p></article>
 </div>
@@ -205,9 +205,9 @@
 </article>
 </div>
 <div class="toast hidden" id="toast"></div>
-<script src="data/players.js?v=20260828-v3.5"></script>
-<script src="data/research.js?v=20260828-v3.5"></script>
-<script src="data/guidance.js?v=20260828-v3.5"></script>
-<script src="app.js?v=20260828-v3.5"></script>
+<script src="data/players.js?v=20260829-v3.6"></script>
+<script src="data/research.js?v=20260829-v3.6"></script>
+<script src="data/guidance.js?v=20260829-v3.6"></script>
+<script src="app.js?v=20260829-v3.6"></script>
 </body>
 </html>
