@@ -1,5 +1,5 @@
 (() => {
-  const APP_VERSION = "prod-v2.7-projection-first";
+  const APP_VERSION = "prod-v3.1-modular";
   const MAX_PICKS = 216;
   const LEAGUE = Object.freeze({
     teams: 12,
@@ -30,7 +30,10 @@
   const cumulativeIntel = clone(window.CUMULATIVE_INTEL || {});
   const teamContext = clone(window.TEAM_CONTEXT || {});
   const intelEvents = clone(window.INTEL_EVENTS || []);
-  const baselineDate = window.CUMULATIVE_INTEL_BASELINE_DATE || "2026-08-23";
+  const qbGuidance = clone(window.QB_GUIDANCE || {});
+  const playerGuidance = clone(window.PLAYER_GUIDANCE || {});
+  Object.entries(clone(window.FINAL_INTEL_OVERRIDES || {})).forEach(([name,patch]) => { cumulativeIntel[name] = { ...(cumulativeIntel[name] || {}), ...patch }; });
+  const baselineDate = window.CUMULATIVE_INTEL_BASELINE_DATE || "2026-08-28";
 
   const $ = s => document.querySelector(s);
   const $$ = s => [...document.querySelectorAll(s)];
@@ -74,6 +77,13 @@
   const playerById = new Map(players.map(p => [p.id, p]));
   const researchCanonical = new Map(Object.keys(research).map(k => [canonical(k), research[k]]));
   const cumulativeCanonical = new Map(Object.keys(cumulativeIntel).map(k => [canonical(k), cumulativeIntel[k]]));
+  const qbGuidanceCanonical = new Map(Object.keys(qbGuidance).map(k => [canonical(k), qbGuidance[k]]));
+  const playerGuidanceCanonical = new Map(Object.keys(playerGuidance).map(k => [canonical(k), playerGuidance[k]]));
+  const qbGuideFor = p => qbGuidance[p?.name] || qbGuidanceCanonical.get(canonical(p?.name)) || null;
+  const specificGuideFor = p => playerGuidance[p?.name] || playerGuidanceCanonical.get(canonical(p?.name)) || null;
+  const QB_TIER_NUM = Object.freeze({ ELITE:1, GREAT:2, GOOD:3, OKAY:4, UNPLAYABLE:5 });
+  const qbTierNum = p => QB_TIER_NUM[qbGuideFor(p)?.tier] || 6;
+  const qbTierPremium = p => p.pos!=="QB" ? 0 : ({ELITE:20,GREAT:7,GOOD:1,OKAY:-4,UNPLAYABLE:-12}[qbGuideFor(p)?.tier] ?? -6);
 
   function lookupByCanonical(store, canonicalStore, name) {
     return store[name] || canonicalStore.get(canonical(name)) || null;
@@ -252,7 +262,11 @@
   const qbProjectionRank = p => (projectionPosIndex.get(p.id) ?? 99) + 1;
   const baselineLeagueQBTimingRank = p => {
     if (p.pos !== "QB") return marketRank(p);
-    return clamp(7 + (qbProjectionRank(p) - 1) * 5.1, 1, MAX_PICKS);
+    const g=qbGuideFor(p);
+    // ESPN's Aug. 28 superflex board is a much better timer than ordinary 1-QB ADP.
+    // timingAdjust then nudges completion-volume QBs earlier for this league's scoring.
+    if (g?.superflexOverall) return clamp(g.superflexOverall + (Number(g.timingAdjust)||0),1,MAX_PICKS);
+    return clamp(7 + (qbProjectionRank(p) - 1) * 4.4, 1, MAX_PICKS);
   };
   const baselineTimingRank = p => p.pos === "QB" ? Math.min(marketRank(p), baselineLeagueQBTimingRank(p)) : marketRank(p);
 
@@ -422,21 +436,117 @@
     }
   };
 
+
+  function qbPoolSnapshot(c = counts(draftSlot)) {
+    const now=currentPick(), onClock=isMyTurn(now);
+    const returnPick=onClock ? followingUserPick() : nextUserTurnFromNow();
+    const start=onClock ? now+1 : now;
+    const teams=new Set();
+    if (returnPick) for(let pick=start;pick<returnPick;pick++){ const t=pickToTeam(pick); if(t!==draftSlot) teams.add(t); }
+    let demand=0;
+    teams.forEach(t=>{
+      const q=counts(t).QB;
+      demand += q===0 ? .98 : q===1 ? .88 : q===2 ? .30 : .04;
+    });
+    const roomShift=observedPositionTimingShift("QB");
+    const multiplier=roomShift<0 ? 1+Math.min(.35,Math.abs(roomShift)/45) : 1-Math.min(.20,roomShift/60);
+    const expectedTaken=Math.max(0,Math.round(demand*multiplier));
+    const draftedQBs=draft.filter(d=>playerById.get(d.playerId)?.pos==="QB").length;
+    const goodRemaining=players.filter(p=>p.pos==="QB"&&!isDrafted(p)&&qbTierNum(p)<=3&&qbGuideFor(p)?.job==="SECURE").sort((a,b)=>(qbGuideFor(a)?.rank||99)-(qbGuideFor(b)?.rank||99));
+    const usableRemaining=players.filter(p=>p.pos==="QB"&&!isDrafted(p)&&qbTierNum(p)<=4&&["SECURE","SECURE_RISK"].includes(qbGuideFor(p)?.job)).sort((a,b)=>(qbGuideFor(a)?.rank||99)-(qbGuideFor(b)?.rank||99));
+    const survivalMargin=goodRemaining.length-expectedTaken;
+    let level="GREEN";
+    if(c.QB>=3) level="SECURED";
+    else if(c.QB<2){
+      if(draftedQBs>=20||goodRemaining.length<=6||survivalMargin<=2) level="RED";
+      else if(draftedQBs>=16||goodRemaining.length<=10||survivalMargin<=5) level="YELLOW";
+    } else {
+      if(draftedQBs>=23||goodRemaining.length<=4||survivalMargin<=1) level="RED";
+      else if(draftedQBs>=20||goodRemaining.length<=7||survivalMargin<=3) level="YELLOW";
+    }
+    return {level,draftedQBs,goodRemaining,usableRemaining,expectedTaken,survivalMargin,teamsBefore:teams.size,returnPick,roomShift};
+  }
+
+  function guidanceView(p){
+    const direct=specificGuideFor(p), qg=qbGuideFor(p), r=researchFor(p), iv=intelView(p);
+    if(direct) return direct;
+    const verdict=qg ? `${qg.tier} QB` : (aggregateExpertTag(p)||iv.status||"HOLD");
+    const tags=qg ? [qg.tier, qg.job==="SECURE"?"SECURE STARTER":qg.job] : [iv.status||"HOLD"];
+    return {
+      verdict,
+      target:qg ? `Custom QB tier: ${qg.tier}${qg.rank?` • rank ${qg.rank}`:""}` : "Use live recommendation + availability; no fixed reach range stored.",
+      summary:qg?.summary || iv.note || r.note || r.news || "Projection-led player. Use the live board, positional wait cost and market timing together.",
+      why:r.note || iv.note || "Custom projection and current role are the primary inputs.",
+      risks:r.unresolved ? "High-impact uncertainty remains unresolved." : (intelScore(p)<=-5 ? "Cumulative risk is elevated." : "No additional player-specific risk note stored; use the Intel tab for current context."),
+      outcomes:[],tags,custom:qg ? "QB value is adjusted for 1 point per completion, 6-point passing TDs and the QB-eligible OP slot." : "Custom projections remain the primary player-value input.",
+      confidence:`${Math.round((iv.confidence||.65)*100)}%`,source:`Cumulative model through ${baselineDate}`
+    };
+  }
+
+  function openPlayerGuide(id){
+    const p=playerById.get(id); if(!p) return;
+    const g=guidanceView(p), qg=qbGuideFor(p);
+    $("#guideEyebrow").textContent=`${p.pos} • ${p.team} • ${g.verdict||"GUIDANCE"}`;
+    $("#guideName").textContent=p.name;
+    const tagList=[...(g.tags||[])]; if(qg) tagList.unshift(`${qg.tier} QB`);
+    $("#guideTags").innerHTML=[...new Set(tagList)].map(t=>pill(t,qg&&String(t).includes(qg.tier)?`qb-tier-${qg.tier.toLowerCase()}`:"" )).join("");
+    $("#guideSummary").textContent=g.summary||"";
+    $("#guideTarget").textContent=g.target||g.verdict||"";
+    $("#guideCustom").textContent=g.custom||"Custom projection drives the board.";
+    $("#guideWhy").textContent=g.why||"";
+    $("#guideRisks").textContent=g.risks||"";
+    $("#guideOutcomes").innerHTML=(g.outcomes||[]).map(x=>pill(x)).join("");
+    $("#guideFooter").textContent=`Confidence: ${g.confidence||"MODEL"} • ${g.source||`Model through ${baselineDate}`} • ESPN/market price is a timing signal, not a second vote on football quality.`;
+    $("#playerGuideModal").classList.remove("hidden");
+    document.body.style.overflow="hidden";
+  }
+  function closePlayerGuide(){ $("#playerGuideModal")?.classList.add("hidden"); document.body.style.overflow=""; }
+
+  function renderQBScarcity(){
+    const panel=$("#qbScarcityPanel"); if(!panel) return;
+    const c=counts(draftSlot), s=qbPoolSnapshot(c);
+    panel.className=`panel qb-scarcity qb-${s.level.toLowerCase()}`;
+    const label=s.level==="SECURED"?"QB ROOM • 3 QBs SECURED":`QB POOL • ${s.level==="RED"?"CRITICAL":s.level==="YELLOW"?"THINNING":"HEALTHY"}`;
+    $("#qbAlertLabel").textContent=label;
+    let title,meta;
+    if(s.level==="SECURED") { title="QB3 objective complete"; meta="Do not force QB4. Only take a fourth if a secure Good-tier starter becomes an extreme value."; }
+    else if(c.QB<2 && s.level==="RED") { title="🚨 Take a starting QB now"; meta=`You have ${c.QB} QB. ${s.goodRemaining.length} preferred Good+ QBs remain; ~${s.expectedTaken} could go before your return.`; }
+    else if(c.QB<2 && s.level==="YELLOW") { title="QB1/QB2 priority is rising"; meta=`${s.draftedQBs} QBs are gone and ${s.goodRemaining.length} preferred Good+ options remain.`; }
+    else if(c.QB===2 && s.level==="RED") { title="🚨 QB3 ALERT — take the QB"; meta=`Preferred pool is near the cliff: ${s.goodRemaining.length} Good+ QBs remain; ~${s.expectedTaken} are expected before your next turn.`; }
+    else if(c.QB===2 && s.level==="YELLOW") { title="Start considering QB3 now"; meta=`QB${s.draftedQBs+1} range is approaching the cliff. A Great/Good QB3 can justify a Round 5–7 reach.`; }
+    else if(c.QB===2) { title="QB3 can wait — for now"; meta=`${s.goodRemaining.length} Good+ QBs remain. Keep exploiting RB/WR value until the pool turns yellow.`; }
+    else { title="QB pool still healthy"; meta=`${s.goodRemaining.length} Good+ QBs remain; live room demand before your return is ~${s.expectedTaken}.`; }
+    $("#qbAlertTitle").textContent=title; $("#qbAlertMeta").textContent=meta;
+    $("#qbDraftedCount").textContent=String(s.draftedQBs); $("#qbGoodRemaining").textContent=String(s.goodRemaining.length); $("#qbExpectedBeforeNext").textContent=String(s.expectedTaken);
+    const names=s.goodRemaining.slice(0,8).map(p=>{ const g=qbGuideFor(p); return pill(`${p.name} • ${g.tier}`,`qb-tier-${g.tier.toLowerCase()}`); }).join("");
+    $("#qbRemainingNames").innerHTML=names || pill("Preferred Good+ tier exhausted","bad");
+  }
+
   function needBonusFromCounts(p, c, rosterCount = myRosterCount()) {
     // Roster fit matters, but it must not overpower player quality. QB1/QB2 bonuses
     // escalate only if the roster develops without filling the QB + OP structure.
     if (p.pos === "QB") {
+      const g=qbGuideFor(p), tier=qbTierNum(p);
+      if (g?.job==="BACKUP") return -40;
+      if (g?.job==="DANGER") return c.QB<2 ? -14 : -24;
       if (c.QB === 0) {
-        if (rosterCount <= 1) return 8;
-        if (rosterCount <= 3) return 12;
-        return 18;
+        if (rosterCount <= 1) return 10;
+        if (rosterCount <= 3) return 15;
+        return 22;
       }
       if (c.QB === 1) {
-        if (rosterCount <= 2) return 6;
-        if (rosterCount <= 4) return 11;
-        return 17;
+        if (rosterCount <= 2) return 8;
+        if (rosterCount <= 4) return 14;
+        return 21;
       }
-      if (c.QB === 2) return -8;
+      if (c.QB === 2) {
+        const qs=qbPoolSnapshot(c);
+        const earlyPenalty=rosterCount<4?8:rosterCount<5?2:0; // don't default to QB3 before Round 5
+        let bonus= tier<=2 ? -3 : tier===3 ? -7 : -13;
+        if(qs.level==="YELLOW") bonus=tier<=2?7:tier===3?4:-5;
+        if(qs.level==="RED") bonus=tier<=2?11:tier===3?9:tier===4?1:-16;
+        return bonus-earlyPenalty;
+      }
       return -24;
     }
     if (p.pos === "RB") { if (c.RB===0) return 7; if (c.RB===1) return 5; if (c.RB<4) return 2; return -2; }
@@ -479,7 +589,7 @@
       : 0;
     const positionProjection = positionalProjectionScore(p);
     const sourceTieBreaker = customBoardRankScore(p);
-    const qbStructure = p.pos === "QB" ? 3 : 0;
+    const qbStructure = p.pos === "QB" ? 3 + qbTierPremium(p) : 0;
 
     const intelAdjustment = clamp(intelScore(p), -15, 15) * .25;
     const unresolvedPenalty = r.unresolved ? 4 : 0;
@@ -683,6 +793,7 @@
     if (a.tierCliff) out.push(`Immediate ${p.pos} tier cliff`);
     if (a.survival<.30 && !analysisContext.onClock) out.push("Unlikely to reach your pick");
     if (p.pos==="QB" && counts(draftSlot).QB<2) out.push("Fills QB/OP starting structure");
+    if (p.pos==="QB" && counts(draftSlot).QB===2) { const qs=qbPoolSnapshot(); if(qs.level==="RED") out.push("QB3 scarcity is CRITICAL"); else if(qs.level==="YELLOW") out.push("QB3 pool is thinning"); }
     if (a.nextBestOverall) out.push(`Next-turn fallback: ${a.nextBestOverall.name}`);
     if (intelScore(p)>=5) out.push("Cumulative evidence positive");
     if (intelScore(p)<=-5) out.push("Cumulative risk elevated");
@@ -726,7 +837,7 @@
 
   function renderStatus() {
     const now=currentPick(), badge=$("#turnBadge"), status=$("#draftStatus");
-    if (now>MAX_PICKS) { badge.textContent="Draft complete"; status.innerHTML=`<strong>${draft.length}</strong> picks recorded.`; return; }
+    if (now>MAX_PICKS) { badge.textContent="Draft complete"; status.innerHTML=`<strong>${draft.length}</strong> picks recorded.`; renderQBScarcity(); return; }
     const slot=pickToTeam(now), round=roundForPick(now), onClock=slot===draftSlot;
     badge.textContent=`${onClock?"YOUR TEAM":"TEAM "+slot} • Pick ${now} • Round ${round}`;
     const next=nextUserTurnFromNow(), q=counts(draftSlot).QB;
@@ -736,7 +847,9 @@
       let openQBNeed=0; seen.forEach(t=>{if(counts(t).QB<2)openQBNeed++;});
       if (openQBNeed>=3 && q<2) qbRun=` • <strong>${openQBNeed}</strong> teams before you still have fewer than 2 QBs`;
     }
-    status.innerHTML=`<strong>${draft.length}</strong> ESPN picks recorded • <strong>${available().length}</strong> players available${qbRun}`;
+    const qs=qbPoolSnapshot();
+    status.innerHTML=`<strong>${draft.length}</strong> ESPN picks recorded • <strong>${available().length}</strong> players available${qbRun} • QB pool: <strong>${qs.draftedQBs} drafted / ${qs.goodRemaining.length} Good+ left</strong>`;
+    renderQBScarcity();
   }
 
   function renderPositionOutlook() {
@@ -769,7 +882,8 @@
       $("#bestPickName").textContent=best.name;
       $("#bestPickMeta").textContent=`${best.team} ${best.pos} • Recommendation ${a.score.toFixed(1)} • Standalone ${a.intrinsic.toFixed(1)} • ${best.pos} wait cost ${a.waitCost.toFixed(1)} • expected ${best.pos} next turn ${a.expectedPosNext.toFixed(1)} • 2-pick outlook ${a.pairEV.toFixed(1)}${onClock?"":` • ${pct(a.survival)} chance to reach pick ${next}`}`;
       $("#bestPickReasons").innerHTML=reasons(best).map(x=>`<span class="chip">${esc(x)}</span>`).join("");
-    } else { $("#bestPickName").textContent="—"; $("#bestPickMeta").textContent=""; $("#bestPickReasons").innerHTML=""; }
+      $("#bestPickGuideBtn").disabled=false; $("#bestPickGuideBtn").dataset.guideId=best.id;
+    } else { $("#bestPickName").textContent="—"; $("#bestPickMeta").textContent=""; $("#bestPickReasons").innerHTML=""; $("#bestPickGuideBtn").disabled=true; $("#bestPickGuideBtn").removeAttribute("data-guide-id"); }
     if (bpa) {
       const a=analysisFor(bpa);
       $("#bpaName").textContent=bpa.name;
@@ -779,9 +893,9 @@
       $("#nextPick").textContent=`Pick ${next}`;
       $("#nextPickMeta").textContent=onClock?(after?`Wait-cost model checks pick ${after} as secondary context`:"Final turn"):`${next-now} pick${next-now===1?"":"s"} until you are on the clock`;
     } else { $("#nextPick").textContent="Draft complete"; $("#nextPickMeta").textContent=""; }
-    const c=counts(draftSlot);
-    $("#qbPlan").textContent=c.QB===0?"QB1 is a structural priority":c.QB===1?"QB2 / OP is a structural priority":c.QB===2?"Two starting QBs secured":"QB depth only";
-    $("#qbPlanMeta").textContent=`QB + OP target: 2 starting QBs • Your roster: ${c.QB} QB • ${c.RB} RB • ${c.WR} WR • ${c.TE} TE`;
+    const c=counts(draftSlot), qs=qbPoolSnapshot(c);
+    $("#qbPlan").textContent=c.QB===0?"QB1 is a structural priority":c.QB===1?"QB2 / OP is a structural priority":c.QB===2?(qs.level==="RED"?"🚨 Take QB3 now":qs.level==="YELLOW"?"QB3 decision zone":"Two starters secured • watch QB3"):c.QB===3?"Three-QB objective secured":"QB4 only at extreme value";
+    $("#qbPlanMeta").textContent=`Preferred roster: 3 QBs • ${qs.draftedQBs} league QBs drafted • ${qs.goodRemaining.length} Good+ remain • Your roster: ${c.QB} QB • ${c.RB} RB • ${c.WR} WR • ${c.TE} TE`;
     renderPositionOutlook();
   }
 
@@ -803,6 +917,7 @@
       <td class="action-col">${d?`<button class="ghost undo-one" data-id="${esc(p.id)}">Undo</button>`:p.recordOnly?`<button class="record-one" data-id="${esc(p.id)}">Record</button>`:r.draftable===false?`<button class="ghost" disabled>OUT</button>`:`<button class="record-one" data-id="${esc(p.id)}">${buttonLabel}</button>`}</td>
       <td><div class="player-name">${esc(p.name)}${r.status?` <span class="status">${esc(r.status)}</span>`:""}</div><div class="subline">${esc(p.team)}${p.recordOnly&&!d?" • record-only • no projection":""}${d?` • drafted #${d.pick} by ${d.teamSlot===draftSlot?"Your Team":"Team "+d.teamSlot}`:""}</div></td>
       <td>${pill(p.pos)}</td>
+      <td class="guide-cell">${(()=>{const g=guidanceView(p),qg=qbGuideFor(p);return `<button class="ghost guide-btn guide-one" data-guide-id="${esc(p.id)}">ⓘ ${esc(qg?qg.tier:(g.verdict||"Analysis"))}</button><div class="guide-target">${esc(g.target||"")}</div>`;})()}</td>
       <td class="score-num" title="Two-pick expected value; ADP only affects availability">${scoreLabel}</td>
       <td class="score-num">${a.intrinsic.toFixed(1)}</td>
       <td class="score-num ${a.waitCost>=18?"metric-bad":a.waitCost>=8?"metric-warn":""}">${a.waitCost.toFixed(1)}</td>
@@ -810,6 +925,7 @@
       <td class="score-num ${p.projectionEstimated?"proj-est":""}">${(+p.customProjection).toFixed(1)}${p.projectionEstimated?"*":""}</td>
       <td class="score-num">${vorp(p).toFixed(1)}</td>
       <td>${market}${adp}</td>
+      <td>${pill(aggregateExpertTag(p),expertTagClass(aggregateExpertTag(p)))}</td>
       <td>${pill(pct(a.survival),a.survival<.3?"bad":a.survival>.7?"good":"warn")}</td>
     </tr>`;
   }
@@ -839,7 +955,7 @@
 
   function renderSleepers() {
     const s=available().filter(p=>!p.recordOnly&&marketRank(p)>=65&&researchFor(p).draftable!==false).sort((a,b)=>sleeperScore(b)-sleeperScore(a)).slice(0,40);
-    $("#sleeperCards").innerHTML=s.map(p=>{const r=researchFor(p),a=analysisFor(p);return `<article class="sleeper-card"><div class="eyebrow">${esc(p.pos)} • ${esc(p.team)} • ${p.espnRank?"ESPN #"+p.espnRank:"market est #"+Math.round(marketRank(p))}</div><h3>${esc(p.name)}</h3><div class="big-score">${Math.round(sleeperScore(p))}</div><div class="muted">Sleeper / value score</div><p class="note">${esc(r.cumulativeNote||r.note||r.news||"Cheap player with a projection-driven path to value.")}</p><div class="chips">${pill(`Proj ${p.customProjection.toFixed(1)}${p.projectionEstimated?"*":""}`)}${pill(`VORP ${vorp(p).toFixed(1)}`)}${pill(`Availability ${pct(a.survival)}`)}</div></article>`;}).join("");
+    $("#sleeperCards").innerHTML=s.map(p=>{const r=researchFor(p),a=analysisFor(p);return `<article class="sleeper-card"><div class="eyebrow">${esc(p.pos)} • ${esc(p.team)} • ${p.espnRank?"ESPN #"+p.espnRank:"market est #"+Math.round(marketRank(p))}</div><h3>${esc(p.name)}</h3><div class="big-score">${Math.round(sleeperScore(p))}</div><div class="muted">Sleeper / value score</div><p class="note">${esc(r.cumulativeNote||r.note||r.news||"Cheap player with a projection-driven path to value.")}</p><div class="chips">${pill(`Proj ${p.customProjection.toFixed(1)}${p.projectionEstimated?"*":""}`)}${pill(`VORP ${vorp(p).toFixed(1)}`)}${pill(`Availability ${pct(a.survival)}`)}</div><button class="ghost guide-cta guide-one" data-guide-id="${esc(p.id)}">ⓘ Player guidance</button></article>`;}).join("");
     dirty.sleepers=false;
   }
 
@@ -973,6 +1089,11 @@
     $("#positionFilter").onchange=()=>renderBoard();
     $("#search").oninput=()=>renderBoard();
     $("#refreshBtn").onclick=()=>{refreshAnalysis({forceBoard:true});toast("Recommendations refreshed");};
+    $("#bestPickGuideBtn").onclick=e=>{ const id=e.currentTarget.dataset.guideId; if(id) openPlayerGuide(id); };
+    $("#guideCloseBtn").onclick=closePlayerGuide;
+    document.addEventListener("click",e=>{ const b=e.target.closest(".guide-one"); if(!b) return; const id=b.dataset.guideId; if(id) openPlayerGuide(id); });
+    $("#playerGuideModal").addEventListener("click",e=>{ if(e.target?.dataset?.closeGuide) closePlayerGuide(); });
+    document.addEventListener("keydown",e=>{ if(e.key==="Escape") closePlayerGuide(); });
     $("#undoBtn").onclick=undoLast;
     $("#exportBtn").onclick=exportState;
     $("#importBtn").onclick=()=>$("#importFile").click();

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="theme-color" content="#07101f" />
   <title>Picklehead247 Draft Companion</title>
-  <link rel="stylesheet" href="styles.css?v=2.7" />
+  <link rel="stylesheet" href="styles.css?v=20260828-v3.1">
 </head>
 <body>
 <header class="topbar">
@@ -13,7 +13,7 @@
     <div class="logo">P247</div>
     <div>
       <h1>Draft Companion</h1>
-      <p>2026 • ESPN live-draft companion • custom scoring • QB + OP optimized</p>
+      <p>2026 • Draft-night v3 • custom scoring • QB + OP + QB3 scarcity</p>
     </div>
   </div>
   <div class="top-actions">
@@ -45,6 +45,22 @@
     <div class="turn-actions">
       <button id="refreshBtn" class="ghost">Refresh recommendations</button>
     </div>
+  </section>
+
+  <section id="qbScarcityPanel" class="panel qb-scarcity qb-green" aria-live="polite">
+    <div class="qb-scarcity-main">
+      <div>
+        <div id="qbAlertLabel" class="eyebrow">QB POOL • HEALTHY</div>
+        <h2 id="qbAlertTitle">QB3 can wait</h2>
+        <p id="qbAlertMeta">Live scarcity will update as picks are recorded.</p>
+      </div>
+      <div class="qb-scarcity-stats">
+        <div class="qb-stat"><strong id="qbDraftedCount">0</strong><span>QBs drafted</span></div>
+        <div class="qb-stat"><strong id="qbGoodRemaining">24</strong><span>Good+ left</span></div>
+        <div class="qb-stat"><strong id="qbExpectedBeforeNext">0</strong><span>Expected before return</span></div>
+      </div>
+    </div>
+    <div id="qbRemainingNames" class="chips qb-pool-names"></div>
   </section>
 
   <section class="panel controls">
@@ -97,6 +113,7 @@
       <h2 id="bestPickName">—</h2>
       <p id="bestPickMeta"></p>
       <div id="bestPickReasons" class="chips"></div>
+      <button id="bestPickGuideBtn" type="button" class="ghost guide-cta" disabled>Why this player?</button>
     </article>
     <article class="decision-card">
       <div class="eyebrow">BEST PLAYER AVAILABLE</div>
@@ -130,7 +147,7 @@
     </div>
     <div class="table-wrap">
       <table id="playerTable">
-        <thead><tr><th class="action-col">Draft / mark</th><th>Player</th><th>Pos</th><th>Recommendation</th><th>Standalone</th><th>Wait cost</th><th>Pos next</th><th>Proj</th><th>VORP</th><th>ESPN</th><th id="survivalHead">Make back?</th></tr></thead>
+        <thead><tr><th class="action-col">Draft / mark</th><th>Player</th><th>Pos</th><th>Guidance</th><th>Recommendation</th><th>Standalone</th><th>Wait cost</th><th>Pos next</th><th>Proj</th><th>VORP</th><th>ESPN</th><th>Expert</th><th id="survivalHead">Make back?</th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
@@ -151,16 +168,36 @@
   </section>
   <section id="strategyTab" class="tab-pane hidden">
     <div class="strategy-grid">
-      <article class="strategy-card"><div class="eyebrow">YOUR LEAGUE</div><h3>Plan for two starting quarterbacks</h3><p>1 point per completion, 6 points per passing TD, and QB eligibility in the OP slot make QB2 a structural starter. The recommendation engine now adjusts QB timing earlier than ordinary 1-QB ESPN ADP and adapts to your room.</p></article>
-      <article class="strategy-card"><div class="eyebrow">PLAYER VALUE</div><h3>Your custom projections drive the board</h3><p>Standalone value is now 95% derived from your custom-scoring projection data: normalized VORP plus positional projection strength. The old sourceOrder contributes only 5% as a tie-breaker. ESPN ADP affects availability timing only.</p></article>
-      <article class="strategy-card"><div class="eyebrow">DECISION MODEL</div><h3>Player value first; timing only breaks close calls</h3><p>Standalone custom-league value and roster fit drive the recommendation. Wait cost and tier cliffs are capped and automatically fade toward zero when a player is materially behind the best option on the board.</p></article>
+      <article class="strategy-card"><div class="eyebrow">YOUR LEAGUE</div><h3>Prefer 3 QBs — protect the 24-QB cliff</h3><p>QB + OP means two weekly starters, while 1 point per completion and 6 points per passing TD amplify elite-QB advantage. Prefer QB1 + QB2 early, then acquire a secure QB3 before the Good tier disappears. QB20–22 is a warning zone; QB23–24 is critical.</p></article>
+      <article class="strategy-card"><div class="eyebrow">PLAYER VALUE</div><h3>Your custom projections drive the board</h3><p>Standalone value is now 95% derived from your custom-scoring projection data: normalized VORP plus positional projection strength. The old sourceOrder contributes only 5% as a tie-breaker. ESPN ADP affects availability timing only.</p></article><article class="strategy-card"><div class="eyebrow">EXPERT TAG</div><h3>Aggregated research label</h3><p>The Expert column summarizes the cumulative evidence we reviewed into labels such as BREAKOUT, VALUE, SLEEPER, FADE, WAIT, UP, DOWN or HOLD. It is descriptive; the underlying intel score—not the label text—is what affects recommendations.</p></article>
+      <article class="strategy-card"><div class="eyebrow">DECISION MODEL</div><h3>Positional advantage + live scarcity</h3><p>Custom projections remain primary, with an explicit QB-tier premium for this scoring. The QB3 bonus activates only when the pool is thinning or critical, so the app can reach for a strong third QB in Rounds 5–7 without blindly forcing QB3 over elite RB/WR value.</p></article>
       <article class="strategy-card"><div class="eyebrow">LATE ROUNDS</div><h3>Exactly one K and one D/ST — at the end</h3><p>The engine blocks K and D/ST from recommendations until your final two roster selections and will never recommend a second kicker or second defense. Earlier bench picks stay focused on asymmetric RB/WR/TE upside.</p></article>
     </div>
   </section>
 </main>
+
+<div id="playerGuideModal" class="guide-modal hidden" role="dialog" aria-modal="true" aria-labelledby="guideName">
+  <div class="guide-backdrop" data-close-guide="1"></div>
+  <article class="guide-sheet">
+    <button id="guideCloseBtn" class="ghost guide-close" type="button" aria-label="Close player analysis">✕</button>
+    <div id="guideEyebrow" class="eyebrow">PLAYER GUIDANCE</div>
+    <h2 id="guideName">—</h2>
+    <div id="guideTags" class="chips"></div>
+    <p id="guideSummary" class="guide-summary"></p>
+    <div class="guide-grid">
+      <div class="guide-box"><h4>Draft range / verdict</h4><p id="guideTarget"></p></div>
+      <div class="guide-box"><h4>Custom-scoring guidance</h4><p id="guideCustom"></p></div>
+      <div class="guide-box"><h4>Why</h4><p id="guideWhy"></p></div>
+      <div class="guide-box"><h4>Main risks</h4><p id="guideRisks"></p></div>
+    </div>
+    <div id="guideOutcomes" class="guide-outcomes"></div>
+    <div id="guideFooter" class="guide-footer"></div>
+  </article>
+</div>
 <div id="toast" class="toast hidden"></div>
-<script src="data/players.js?v=2.7"></script>
-<script src="data/research.js?v=2.7"></script>
-<script src="app.js?v=2.7"></script>
+<script src="data/players.js?v=20260828-v3.1"></script>
+<script src="data/research.js?v=20260828-v3.1"></script>
+<script src="data/guidance.js?v=20260828-v3.1"></script>
+<script src="app.js?v=20260828-v3.1"></script>
 </body>
 </html>

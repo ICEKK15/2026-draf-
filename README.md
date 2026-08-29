@@ -1,43 +1,24 @@
-# Picklehead247 Draft Companion — Production
+# Picklehead247 Draft Companion — Production V3.1
 
-A static 2026 fantasy-football draft companion designed to stay open beside an ESPN online mock or live draft.
+Recommended GitHub Pages production structure.
 
-## What this version does
+## Files
+- `index.html` — application shell / UI markup
+- `styles.css` — responsive/mobile styling
+- `app.js` — live draft engine, recommendation logic, QB scarcity alerts, persistence
+- `data/players.js` — player/projection/ESPN market data
+- `data/research.js` — cumulative evidence model, team context, post-baseline intel events
+- `data/guidance.js` — QB tiers and player-specific actionable guidance
+- `.nojekyll` — serves the repository directly through GitHub Pages
+- `backup-single.html` — emergency self-contained backup; not the recommended production entry point
 
-- No simulated opponents and no fake mock engine.
-- You record each real ESPN selection as it happens.
-- The app assigns each pick to the correct team using a 12-team snake draft.
-- Recommendations recalculate from the actual available-player pool and actual rosters.
-- Custom league logic emphasizes QB because the league awards 1 point per completion, 6 points per passing TD, and allows QB in the OP slot.
-- Tracks ESPN market rank/ADP as a price/timing signal rather than the decision engine.
-- Includes player projections, VORP, roster needs, positional scarcity, opponent QB demand, probability a player reaches your next turn, sleepers/value logic, and preseason intelligence.
-- Fantasy Footballers sentiment is treated as one source; repeated mentions are not additive. News/role changes can alter opportunity, health, and context.
-- Draft state autosaves in the browser and can be exported/imported as JSON.
+## Deploy
+Upload/replace the files at the repository root preserving the `data/` folder. GitHub Pages should point to the branch/root containing `index.html`.
 
-## Use during an ESPN mock
+Do **not** rename or flatten the `data/` directory unless you also change the script paths in `index.html`.
 
-1. Open ESPN's mock draft in one tab/window and this companion in another.
-2. Set **My ESPN draft slot** to your slot.
-3. Every time ESPN makes a pick, type that player's name in **Record the next ESPN pick** and press Enter.
-4. The companion automatically advances to the next snake pick and updates all recommendations.
-5. When it is your turn, use **Best Pick Right Now**, the board, survival probability, and roster context to make your ESPN selection. Then record your own ESPN pick here too.
+## Why this is the recommended build
+The modular layout lets the browser cache large player/intelligence files independently, makes last-minute news updates safer, and keeps app logic separate from data. Runtime draft speed remains effectively the same after initial load.
 
-## Publish on GitHub Pages
-
-Upload these files preserving the folder structure:
-
-```
-index.html
-styles.css
-app.js
-data/
-  players.js
-  research.js
-README.md
-```
-
-Then enable GitHub Pages for the repository branch/folder you uploaded.
-
-## Important limitation
-
-A normal static GitHub Pages site cannot directly read the live ESPN draft page because the sites run on different origins and ESPN does not expose the draft room DOM to this app. This version is therefore a fast live companion: ESPN is the source of truth, and you record each pick here. An automatic ESPN sync would require a browser extension/userscript or a supported ESPN API/integration rather than ordinary static web-app code.
+## Draft-night state
+Draft state is stored in browser localStorage and the app retains Import/Export controls. Before replacing an already-used build, export state if you have a live/valuable mock draft you want to preserve.
