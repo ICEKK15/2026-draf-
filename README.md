@@ -1,4 +1,4 @@
-# Picklehead247 Draft Companion — Production V3.1
+# Picklehead247 Draft Companion — Production V3.2
 
 Recommended GitHub Pages production structure.
 
@@ -22,3 +22,9 @@ The modular layout lets the browser cache large player/intelligence files indepe
 
 ## Draft-night state
 Draft state is stored in browser localStorage and the app retains Import/Export controls. Before replacing an already-used build, export state if you have a live/valuable mock draft you want to preserve.
+
+
+## V3.2 hotfix
+- Fixed a startup render crash in the Expert column caused by omitted aggregateExpertTag/expertTagClass helpers during the V3.1 modular split.
+- Verified PLAYER_DATA loads 421 players and the initial Draft Board renders successfully.
+- Cache-busting asset version updated to 20260828-v3.2.

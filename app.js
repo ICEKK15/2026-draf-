@@ -1,5 +1,5 @@
 (() => {
-  const APP_VERSION = "prod-v3.1-modular";
+  const APP_VERSION = "prod-v3.2-modular";
   const MAX_PICKS = 216;
   const LEAGUE = Object.freeze({
     teams: 12,
@@ -465,6 +465,37 @@
       else if(draftedQBs>=20||goodRemaining.length<=7||survivalMargin<=3) level="YELLOW";
     }
     return {level,draftedQBs,goodRemaining,usableRemaining,expectedTaken,survivalMargin,teamsBefore:teams.size,returnPick,roomShift};
+  }
+
+  function aggregateExpertTag(p) {
+    const direct = specificGuideFor(p);
+    const verdict = String(direct?.verdict || "").toUpperCase();
+    if (verdict.includes("AVOID") || verdict.includes("FADE")) return "FADE";
+    if (verdict.includes("WAIT") || verdict.includes("PRICE SENSITIVE")) return "WAIT";
+    if (verdict.includes("BREAKOUT")) return "BREAKOUT";
+    if (verdict.includes("SLEEPER")) return "SLEEPER";
+    if (verdict.includes("VALUE") || verdict.includes("PRIORITY")) return "VALUE";
+
+    const iv = intelView(p);
+    const status = String(iv?.status || "HOLD").toUpperCase();
+    if (status.includes("OUT")) return "DOWN";
+    if (status.includes("FADE")) return "FADE";
+    if (status.includes("WAIT")) return "WAIT";
+    if (status.includes("DOWN")) return "DOWN";
+    if (status.includes("UP")) return "UP";
+
+    const signal = Number(researchFor(p)?.expertSignal || 0);
+    if (signal >= 3) return "UP";
+    if (signal <= -3) return "DOWN";
+    return "HOLD";
+  }
+
+  function expertTagClass(tag) {
+    const t = String(tag || "").toUpperCase();
+    if (["VALUE","BREAKOUT","SLEEPER","UP"].includes(t)) return "good";
+    if (["FADE","DOWN"].includes(t)) return "bad";
+    if (t === "WAIT") return "warn";
+    return "";
   }
 
   function guidanceView(p){
