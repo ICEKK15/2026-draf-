@@ -1,5 +1,5 @@
 (() => {
-  const APP_VERSION = "prod-v3.2-modular";
+  const APP_VERSION = "prod-v3.3-modular";
   const MAX_PICKS = 216;
   const LEAGUE = Object.freeze({
     teams: 12,
@@ -83,7 +83,6 @@
   const specificGuideFor = p => playerGuidance[p?.name] || playerGuidanceCanonical.get(canonical(p?.name)) || null;
   const QB_TIER_NUM = Object.freeze({ ELITE:1, GREAT:2, GOOD:3, OKAY:4, UNPLAYABLE:5 });
   const qbTierNum = p => QB_TIER_NUM[qbGuideFor(p)?.tier] || 6;
-  const qbTierPremium = p => p.pos!=="QB" ? 0 : ({ELITE:20,GREAT:7,GOOD:1,OKAY:-4,UNPLAYABLE:-12}[qbGuideFor(p)?.tier] ?? -6);
 
   function lookupByCanonical(store, canonicalStore, name) {
     return store[name] || canonicalStore.get(canonical(name)) || null;
@@ -365,17 +364,19 @@
     let confidence = prior?.confidence ?? .45;
 
     if (prior) {
-      // The cumulative prior already includes all reviewed evidence through the baseline date.
-      priorScore = (prior.outlook || 0) * (.65 + .35*confidence);
-    } else if (base && Object.keys(base).length) {
-      const dims = ((+base.skills||5)+(+base.opportunity||5)+(+base.offense||5)+(+base.upside||5)+(+base.health||7))/5;
-      const team = teamContext[p.team]?.impact || 0;
-      priorScore = clamp((dims-6)*1.6 + (+base.expertSignal||0)*.20 + (+base.newsImpact||0)*.25 + team, -10, 10);
+      // V3.3: only FOOTBALL information may numerically modify the projection.
+      // `outlook` remains available for display/backward compatibility, while
+      // `rankingOutlook` is the explicit projection-changing component.
+      // Scoring-format narratives (completions, rushing points, PPR fit, etc.)
+      // are already captured in customProjection and must NOT be counted again.
+      const rankingOutlook = Number(prior.rankingOutlook ?? prior.outlook ?? 0);
+      priorScore = rankingOutlook * (.65 + .35*confidence);
     } else {
-      // No player-specific research should mean neutral intel, not an accidental downgrade
-      // caused by default dimension values.
+      // Legacy analyst/skills/opportunity grades remain useful explanatory context,
+      // but they no longer move rankings numerically. This prevents generic opinions
+      // and projection-derived traits from becoming a second vote on the same value.
       priorScore = teamContext[p.team]?.impact || 0;
-      confidence = .35;
+      confidence = base && Object.keys(base).length ? .45 : .35;
     }
 
     const eventScore = groups.reduce((s,g)=>s + g.impact*g.confidence,0);
@@ -603,34 +604,31 @@
     return clamp(1 - (1/(1+Math.exp(-x))), .02, .98);
   }
 
-  // v2.7 standalone value: projection-first.
+  // V3.3 standalone value: projection-first and non-duplicative.
   //
-  // 55% = normalized VORP from the user's custom-scoring projections
-  // 40% = projection rank within the player's own position
-  //  5% = sourceOrder as a minor tie-breaker only
+  // 65% = normalized VORP from the USER'S custom-scoring projections
+  // 35% = projection rank within the player's own position
   //
-  // QB receives a small structural premium because this league starts QB + OP
-  // and awards 1 point per completion + 6 points per passing TD.
-  //
-  // ESPN ADP is deliberately excluded. ADP is used only for availability timing.
+  // IMPORTANT: There is no extra "QB scoring fit" or QB-tier premium here.
+  // Completion points, passing-TD points, rushing, receptions, etc. are already
+  // inside customProjection. Positional scarcity belongs in wait-cost / QB-pool
+  // logic, not in a second scoring bonus. ESPN ADP remains timing-only.
   function intrinsicValue(p) {
     const r = researchFor(p);
     const vorpScore = ["QB","RB","WR","TE"].includes(p.pos)
       ? coreVorpPercentile(vorp(p)) * 100
       : 0;
     const positionProjection = positionalProjectionScore(p);
-    const sourceTieBreaker = customBoardRankScore(p);
-    const qbStructure = p.pos === "QB" ? 3 + qbTierPremium(p) : 0;
 
+    // intelScore is now FOOTBALL INTEL ONLY: health, role, usage, starter status,
+    // suspension/availability, depth-chart and other projection-changing evidence.
     const intelAdjustment = clamp(intelScore(p), -15, 15) * .25;
     const unresolvedPenalty = r.unresolved ? 4 : 0;
     const estimatedPenalty = p.projectionEstimated ? 1.5 : 0;
 
     return (
-      vorpScore * .55 +
-      positionProjection * .40 +
-      sourceTieBreaker * .05 +
-      qbStructure +
+      vorpScore * .65 +
+      positionProjection * .35 +
       intelAdjustment -
       unresolvedPenalty -
       estimatedPenalty
@@ -788,7 +786,16 @@
 
     rankedIds = pool
       .filter(p => (analysisCache.get(p.id)?.score ?? -999)>-900 && recommendationEligibility(p,myCounts,myRosterN).eligible)
-      .sort((a,b)=>(analysisCache.get(b.id)?.score??-999)-(analysisCache.get(a.id)?.score??-999))
+      .sort((a,b)=>{
+        const scoreDiff=(analysisCache.get(b.id)?.score??-999)-(analysisCache.get(a.id)?.score??-999);
+        if (Math.abs(scoreDiff) > .15) return scoreDiff;
+        const intrinsicDiff=intrinsicValue(b)-intrinsicValue(a);
+        if (Math.abs(intrinsicDiff) > .05) return intrinsicDiff;
+        const projectionDiff=(+b.customProjection||0)-(+a.customProjection||0);
+        if (Math.abs(projectionDiff) > .01) return projectionDiff;
+        if (a.pos==="QB" && b.pos==="QB") return (qbGuideFor(a)?.rank||99)-(qbGuideFor(b)?.rank||99);
+        return marketRank(a)-marketRank(b);
+      })
       .map(p=>p.id);
     bpaIds = pool.sort((a,b)=>intrinsicValue(b)-intrinsicValue(a)).map(p=>p.id);
     analysisRevision = stateRevision;
@@ -826,8 +833,8 @@
     if (p.pos==="QB" && counts(draftSlot).QB<2) out.push("Fills QB/OP starting structure");
     if (p.pos==="QB" && counts(draftSlot).QB===2) { const qs=qbPoolSnapshot(); if(qs.level==="RED") out.push("QB3 scarcity is CRITICAL"); else if(qs.level==="YELLOW") out.push("QB3 pool is thinning"); }
     if (a.nextBestOverall) out.push(`Next-turn fallback: ${a.nextBestOverall.name}`);
-    if (intelScore(p)>=5) out.push("Cumulative evidence positive");
-    if (intelScore(p)<=-5) out.push("Cumulative risk elevated");
+    if (intelScore(p)>=5) out.push("Football intel raises projection confidence");
+    if (intelScore(p)<=-5) out.push("Football intel lowers projection confidence");
     if (r.unresolved) out.push("Unresolved high-impact uncertainty");
     return out.slice(0,5);
   }
